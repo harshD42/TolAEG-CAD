@@ -2,4 +2,10 @@
 # source, regardless of the cloning machine's core.autocrlf setting. Without
 # this, git's line-ending normalization silently rewrites CRLF -> LF on commit,
 # breaking the exact-byte-count claim in tests/fixtures/NIST-PROVENANCE.md.
+#
+# Both extensions and both cases: gitattributes patterns are case-sensitive,
+# and tolcad.gen.export writes `.step` while the NIST suite ships `.stp`.
 *.stp binary
+*.STP binary
+*.step binary
+*.STEP binary
