@@ -28,3 +28,29 @@ def test_gate_a_reports_every_criterion():
         "Validation isolation",
     ]:
         assert criterion in result.stdout
+
+
+def test_gate_a_reports_v2_criteria():
+    result = subprocess.run(
+        [sys.executable, "scripts/gate_a.py"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    for criterion in [
+        "Y14.5 worked examples",
+        "NIST PMI conformance",
+        "TolAnalyst agreement",
+        "Monte Carlo convergence",
+        "Checker reliability",
+        "Validation isolation",
+    ]:
+        assert criterion in result.stdout, f"missing criterion: {criterion}"
+
+
+def test_gate_a_not_cleared_without_oracles():
+    """Missing oracles must never count as passes."""
+    result = subprocess.run(
+        [sys.executable, "scripts/gate_a.py"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    assert "NOT CLEARED" in result.stdout
+    assert result.returncode != 0
