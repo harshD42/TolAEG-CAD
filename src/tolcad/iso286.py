@@ -9,15 +9,23 @@ downstream code handles microns or the mm/um split itself.
 
 Supported shaft letters and grades (fit_from_designation, hole-basis 'H' only):
   - 'g', 'h': es-based (tabulated value is the upper deviation); valid for any
-    grade present in _IT_MICRONS (5-8 as currently tabulated).
+    grade present in _IT_MICRONS (5-8 and 12-14 as currently tabulated).
   - 'p': ei-based (tabulated value is the lower deviation); valid for any grade
-    present in _IT_MICRONS (5-8 as currently tabulated).
+    present in _IT_MICRONS (5-8 and 12-14 as currently tabulated).
   - 'k': ei-based, but ISO 286's tabulated 'k' fundamental deviation is only
     valid for IT grades 4-7. Grade 8 and above use a different rule this module
     does not implement, so 'k' is rejected outside grades 4-7 rather than
     silently returning a wrong number.
 Any shaft letter present in _DEVIATION_MICRONS but not classified as es-based
 or ei-based below is rejected with ValueError rather than silently guessed.
+
+NOTE that the accepted set for 'g', 'h' and 'p' WIDENS whenever a row is added
+to _IT_MICRONS, because those three letters carry no grade restriction. Adding
+IT12-IT14 for ISO 273 therefore also made H12/g12, H13/h13 and H14/p14 valid
+designations, where they previously raised. That is correct per ISO 286-1 --
+Tables 4 and 5 give g, h and p for all standard tolerance grades -- but it is a
+side effect worth stating, so tests/test_iso286.py pins the accepted set
+explicitly in both directions.
 
 METHODOLOGICAL CAUTION for anyone re-checking these tables: an earlier pass used
 automated extraction from web reproductions, and THREE of four came back MISALIGNED

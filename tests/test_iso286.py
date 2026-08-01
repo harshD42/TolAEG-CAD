@@ -245,3 +245,47 @@ def test_all_39_it12_to_it14_cells_match_iso286_table_1(band_index, probe_mm):
             f"(_SIZE_BANDS upper bound, probe {probe_mm} mm): "
             f"expected {expected_mm} mm, got {it_grade(probe_mm, grade)} mm"
         )
+
+
+# --- The accepted designation set, pinned in both directions (I-2 fix round) ---
+#
+# Adding IT12-IT14 for ISO 273 also widened fit_from_designation's accepted
+# inputs: 'g', 'h' and 'p' carry no grade restriction, so they are valid for any
+# grade present in _IT_MICRONS, and H12/g12, H13/h13 and H14/p14 went from
+# raising ValueError to returning a fit. Nothing pinned that either way, so the
+# public surface of a checker-core function moved as an unannounced side effect.
+#
+# The widening is CORRECT per ISO 286-1 -- Tables 4 and 5 give g, h and p for all
+# standard tolerance grades -- so acceptance is what gets pinned here, alongside
+# the two rejections that must survive it.
+
+
+@pytest.mark.parametrize("designation", ["H12/g12", "H13/h13", "H14/p14"])
+def test_iso273_grades_are_accepted_for_unrestricted_shaft_letters(designation):
+    """g, h and p are valid at every standard grade, hence at IT12-IT14 too."""
+    hole, shaft = fit_from_designation(20.0, designation)
+    assert hole.min_size < hole.max_size
+    assert shaft.min_size < shaft.max_size
+    assert hole.nominal == pytest.approx(20.0)
+
+
+def test_an_untabulated_grade_is_still_rejected():
+    """Widening to 12-14 must not become 'accept anything'.
+
+    IT9 is a real ISO 286 grade this module does not tabulate. Returning a value
+    for it would mean guessing, so it must raise -- naming the grades we do have.
+    """
+    with pytest.raises(ValueError, match="IT grade 9 not tabulated"):
+        fit_from_designation(20.0, "H9/g9")
+
+
+def test_k_is_still_restricted_to_it4_through_it7_after_the_widening():
+    """'k' has a grade range in ISO 286 Table 5 and IT12-IT14 do not enter it.
+
+    Table 5 splits 'k' into an "IT4 to IT7" column and an "up to IT3 and above
+    IT7" column (ei = 0), and only the first is transcribed here. So unlike g/h/p,
+    'k' must NOT have picked up the new grades.
+    """
+    for designation in ("H12/k12", "H13/k13", "H14/k14"):
+        with pytest.raises(ValueError, match="only tabulated for"):
+            fit_from_designation(20.0, designation)
