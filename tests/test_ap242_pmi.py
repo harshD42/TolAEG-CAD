@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import pathlib
 
 import pytest
@@ -8,11 +9,18 @@ import pytest
 # only thing defending the byte-exactness claim in NIST-PROVENANCE.md, and a
 # guard that can be switched off by a missing optional dependency is not a
 # guard. Everything that actually reads PMI is marked `needs_ocp`.
-try:
+#
+# The gate asks whether OCP is INSTALLED rather than wrapping the import in
+# `except ImportError`. A bare except cannot tell "the optional extra is absent"
+# from "validation/ap242_pmi.py is broken": renaming PmiCounts turned four
+# oracle tests into silent skips reporting "requires the [gen] extra" on a
+# machine that had the extra all along. Asking find_spec the narrow question and
+# leaving the import unguarded means a broken module raises at collection, which
+# is what a broken module should do.
+_HAVE_OCP = importlib.util.find_spec("OCP") is not None
+
+if _HAVE_OCP:
     from validation.ap242_pmi import PmiCounts, read_pmi_counts
-    _HAVE_OCP = True
-except ImportError:  # pragma: no cover - depends on the installed extras
-    _HAVE_OCP = False
 
 needs_ocp = pytest.mark.skipif(not _HAVE_OCP, reason="requires the [gen] extra")
 
