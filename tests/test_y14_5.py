@@ -121,6 +121,18 @@ def test_floating_fully_swap_invariant():
     """Floating is symmetric under (H_a,T_a) <-> (H_b,T_b): swapping which
     part is 'a' and which is 'b' must not change margin or verdict, even
     when the holes differ in both size and position_tol.
+
+    This also pins an absolute expected margin: asserting only that the two
+    swapped verdicts equal EACH OTHER passes under the old buggy min()
+    model too (and under any wrong-but-symmetric formula), since anything
+    symmetric in (H_a,T_a) <-> (H_b,T_b) agrees with itself under a swap.
+    Pinning the value against the documented formula is what actually
+    discriminates the correct model from a symmetric-but-wrong one.
+
+    H_a=8.5, F=8.0, T_a=0.3; H_b=8.6, T_b=0.4:
+    margin = (H_a-F) + (H_b-F) - (T_a+T_b)
+           = (8.5-8.0) + (8.6-8.0) - (0.3+0.4)
+           = 0.5 + 0.6 - 0.7 = 0.4
     """
     hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.3)
     hole_b = FeatureOfSize(8.6, 0.0, 0.2, INTERNAL, position_tol=0.4)
@@ -128,6 +140,8 @@ def test_floating_fully_swap_invariant():
     v2 = fastener_assembles(hole_b, hole_a, M8_BOLT, condition="floating")
     assert v1.assembles == v2.assembles
     assert v1.margin == pytest.approx(v2.margin)
+    assert v1.margin == pytest.approx(0.4)
+    assert v2.margin == pytest.approx(0.4)
 
 
 def test_fixed_symmetric_in_position_tol_swap_only():
@@ -271,6 +285,33 @@ def test_fixed_does_not_raise_when_hole_b_below_fastener_mmc():
     verdict = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="fixed")
     assert verdict.assembles is True
     assert verdict.margin == pytest.approx(1.0)
+
+
+def test_detail_radial_slack_is_half_the_diametral_margin():
+    """detail["radial_slack"] must equal margin / 2: margin is diametral
+    (see the module docstring's UNITS note), so the physical radial slack
+    between the two axes is half of it.
+
+    hole_a=hole_b=8.5, T_a=T_b=0.1, F=8.0 (M8_BOLT):
+    margin = (8.5-8.0) + (8.5-8.0) - (0.1+0.1) = 1.0 - 0.2 = 0.8
+    radial_slack = 0.8 / 2 = 0.4
+    """
+    hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
+    verdict = fastener_assembles(hole, hole, M8_BOLT, condition="floating")
+    assert verdict.margin == pytest.approx(0.8)
+    assert verdict.detail["radial_slack"] == pytest.approx(verdict.margin / 2.0)
+    assert verdict.detail["radial_slack"] == pytest.approx(0.4)
+
+
+def test_detail_margin_unit_states_diametral():
+    """detail["margin_unit"] must document that margin is a diametral
+    quantity, not a radial one -- misreading this is the exact failure
+    class the UNITS note in the module docstring warns against.
+    """
+    hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
+    verdict = fastener_assembles(hole, hole, M8_BOLT, condition="fixed")
+    assert verdict.detail["margin_unit"] == "diametral_mm"
+    assert "diametral" in verdict.detail["margin_unit"]
 
 
 def test_no_bonus_at_mmc():

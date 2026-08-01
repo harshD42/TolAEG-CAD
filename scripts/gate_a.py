@@ -17,7 +17,7 @@ REPO = pathlib.Path(__file__).parent.parent
 # sys.path[0] is scripts/, not REPO, so validation would not otherwise import.
 sys.path.insert(0, str(REPO))
 
-from tolcad.reliability import verdict_stability  # noqa: E402
+from tolcad.reliability import StabilityResult, verdict_stability  # noqa: E402
 from validation import nist_pmi, tolanalyst  # noqa: E402
 
 NIST_EXPECTED = REPO / "data" / "nist_pmi_expected.csv"
@@ -146,6 +146,20 @@ def _marker_present(path: pathlib.Path, marker: str) -> bool:
     return marker in path.read_text(encoding="utf-8")
 
 
+def _format_margin_band(stability: StabilityResult) -> str:
+    """Render the tested |margin| range for the reliability report row.
+
+    This is what makes the reliability measurement auditable: it tells a
+    reader which band of margins the stability metric actually probed. When
+    every mate was excluded (tested == 0) there is no range to report, so a
+    distinct, non-numeric fallback string is used instead of e.g. formatting
+    None as a number.
+    """
+    if stability.tested:
+        return f"|margin| in [{stability.min_abs_margin:.2e}, {stability.max_abs_margin:.2e}]"
+    return "no mates outside the exclusion band"
+
+
 def main() -> int:
     rows: list[tuple[str, str, str]] = []
     passes: list[bool] = []
@@ -176,11 +190,7 @@ def main() -> int:
         _RELIABILITY_MATES, epsilon=_RELIABILITY_EPSILON, seed=_RELIABILITY_SEED
     )
     reliability_ok = reliability_tests_pass and stability.value >= RELIABILITY_THRESHOLD
-    band = (
-        f"|margin| in [{stability.min_abs_margin:.2e}, {stability.max_abs_margin:.2e}]"
-        if stability.tested
-        else "no mates outside the exclusion band"
-    )
+    band = _format_margin_band(stability)
     record(
         "Checker reliability",
         reliability_ok,
