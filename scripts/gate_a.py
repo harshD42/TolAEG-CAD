@@ -35,6 +35,70 @@ ISO286_SRC = REPO / "src" / "tolcad" / "iso286.py"
 CITATION_PENDING_MARKER = "CITATION PENDING HUMAN VERIFICATION"
 ISO286_PLACEHOLDER_MARKER = "replace this line"
 
+# --- 2026-08-01g correction: measured vs. attested ---------------------------
+#
+# Every row declares which KIND of evidence stands behind it.
+#
+#   MEASURED  -- something was executed and its result decided the verdict.
+#   ATTESTED  -- a human compared this code against a published standard and
+#                recorded the outcome. The harness can only read that record
+#                (here: the absence of a pending-verification marker in source).
+#                It CANNOT re-derive the finding, so an attested PASS is an
+#                unfalsifiable pass condition by construction.
+#
+# Reported inside an undifferentiated "6 PASS", the two attested rows read as
+# measurements. They are not, and the tally at the foot of the report now says
+# so. Attested rows must also print WHO attested, WHEN, and against WHICH
+# edition and table, so the claim is checkable by a reader rather than merely
+# asserted by a green word.
+MEASURED = "measured"
+ATTESTED = "attested"
+_KINDS = (MEASURED, ATTESTED)
+
+# Spec section 7's criterion 1 is "Agreement with published Y14.5 worked
+# examples (Tier 1)". This harness had silently renamed it to "Y14.5
+# self-consistency", whose own note records that it is arithmetic derived from
+# the same two unverified formulas the implementation uses -- so criterion 1 was
+# reported by nothing.
+#
+# These three tests encode the three worked examples PRINTED IN THE STANDARD,
+# with the standard's own inputs quoted in their docstrings:
+#   B-3            F = 6.0, H = 6.44  ->  T = 0.44 per part
+#   B-4            F = 6.0, H = 6.44  ->  T = 0.22 per part
+#   B-4 unequal    2T = 0.44          ->  T1 = 0.18, T2 = 0.26
+# Those numbers come from ASME, not from us, so the self-consistency objection
+# does not reach them: our formulas cannot make 6.44 - 6.0 = 0.44 true. Each is
+# evaluated at the exact boundary the standard's own arithmetic produces, which
+# is the only place a sign or factor error is visible.
+#
+# If a node ID here is renamed or deleted, pytest exits non-zero (4 for a
+# collection error, 5 for nothing collected), so this row FAILs loudly rather
+# than passing vacuously. `tests/test_gate_a.py::
+# test_the_criterion_one_node_ids_exist_and_pass` pins that they resolve.
+_Y14_5_WORKED_EXAMPLE_TESTS = (
+    "tests/test_y14_5.py::test_b3_worked_example_boundary_case_assembles",
+    "tests/test_y14_5.py::test_b4_worked_example_boundary_case_assembles",
+    "tests/test_y14_5.py::test_b4_worked_example_unequal_split_boundary_case_assembles",
+)
+
+# The evidence the two attested rows print. Sourced from the commits that
+# removed the pending markers, so the attribution is checkable in `git log`
+# rather than being a claim this file makes about itself.
+Y14_5_ATTESTATION = (
+    "ATTESTED by Harsh Dwivedi, 2026-08-01, commit 2562bef: ASME Y14.5-2018 "
+    "Nonmandatory Appendix B, sections B-3 and B-4, checked against the primary "
+    "text; symbols per B-2.1. NOT a measurement -- this row reads a human record "
+    "(the absence of the pending marker) and cannot re-derive the finding"
+)
+ISO286_ATTESTATION = (
+    "ATTESTED by Harsh Dwivedi, 2026-08-01, commit 2562bef: ISO 286-1:2010 "
+    "Table 1 (IT grades), Table 4 and Table 5 (shaft deviations), all 117 "
+    "IT5-IT8 and H/g/h/k/p values across 13 size bands, checked against the "
+    "primary tables; the IT12-IT14 rows were added later the same day from the "
+    "same Table 1 in commit 13e3b97. NOT a measurement -- this row reads a "
+    "human record (the absence of the placeholder) and cannot re-derive it"
+)
+
 # Fixed, seeded set of Tier 1 mates for the reliability measurement below.
 #
 # This set deliberately spans TWO regimes, per the module docstring in
@@ -248,9 +312,17 @@ def _aggregate_reliability(
     )
 
 
-def _pytest_passes(target: str) -> bool:
+def _pytest_passes(*targets: str) -> bool:
+    """True iff pytest exits 0 for every named target, run as one invocation.
+
+    Variadic so a criterion can name individual node IDs rather than a whole
+    file. A missing or renamed node ID makes pytest exit 4 (collection error)
+    or 5 (nothing collected), both non-zero, so a stale selector reports FAIL
+    rather than quietly measuring nothing.
+    """
+    assert targets, "a criterion that names no test measures nothing"
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", target, "-q"],
+        [sys.executable, "-m", "pytest", *targets, "-q"],
         cwd=REPO, capture_output=True, text=True,
     )
     return result.returncode == 0
@@ -279,19 +351,47 @@ def _format_margin_band(stability: StabilityResult | ReliabilityAggregate) -> st
 
 
 def main() -> int:
-    rows: list[tuple[str, str, str]] = []
+    # (name, ok, kind, note). `kind` is formatted into the status column, so a
+    # reader cannot see PASS without also seeing what kind of evidence it rests
+    # on. See the MEASURED/ATTESTED note at the top of this file.
+    rows: list[tuple[str, bool | None, str, str]] = []
     passes: list[bool] = []
 
-    def record(name: str, ok: bool | None, note: str) -> None:
-        rows.append((name, {True: "PASS", False: "FAIL", None: "SKIP"}[ok], note))
+    def record(name: str, ok: bool | None, kind: str, note: str) -> None:
+        # `kind` is positional and required: defaulting it to MEASURED would
+        # let a future attested row inherit the stronger label by silence,
+        # which is the exact defect this correction exists to remove.
+        assert kind in _KINDS, f"{name}: kind must be one of {_KINDS}, got {kind!r}"
+        rows.append((name, ok, kind, note))
         passes.append(ok is True)
+
+    # Spec section 7, criterion 1: "Agreement with published Y14.5 worked
+    # examples (Tier 1) -- 100%, closed-form, must be exact." Restored as its
+    # own row by the 2026-08-01g correction; see _Y14_5_WORKED_EXAMPLE_TESTS.
+    record(
+        "Y14.5 published worked examples",
+        _pytest_passes(*_Y14_5_WORKED_EXAMPLE_TESTS),
+        MEASURED,
+        f"100% required (spec section 7, criterion 1); "
+        f"{len(_Y14_5_WORKED_EXAMPLE_TESTS)} worked examples printed in ASME "
+        f"Y14.5-2018 Nonmandatory Appendix B, evaluated at the standard's own "
+        f"inputs (B-3 F=6.0/H=6.44/T=0.44; B-4 T=0.22; B-4 unequal split "
+        f"T1=0.18/T2=0.26)",
+    )
 
     # Renamed from "Y14.5 worked examples": these tests are arithmetic derived
     # from the same two unverified formulas the implementation uses, so a PASS
     # here cannot falsify the underlying premise. It is self-consistency, not
     # standard verification. See "Y14.5 citation verified" below for the
     # actual standard-verification status.
+    #
+    # 2026-08-01g: KEPT, but demoted to informational. It is a real measurement
+    # of a real thing -- the whole Tier 1 suite, which is broader than the three
+    # published examples -- so it stays MEASURED; it is simply not one of spec
+    # section 7's criteria, and it must not be mistaken for criterion 1 again.
     record("Y14.5 self-consistency", _pytest_passes("tests/test_y14_5.py"),
+           MEASURED,
+           "INFORMATIONAL, not a spec section 7 criterion: whole Tier 1 suite, "
            "100% required; NOT standard-verified (see Y14.5 citation verified)")
 
     # Monte Carlo convergence depends on the ISO 286 tables (fit_from_designation),
@@ -300,6 +400,7 @@ def main() -> int:
     record(
         "Monte Carlo convergence",
         _pytest_passes("tests/test_convergence.py") and _pytest_passes("tests/test_iso286.py"),
+        MEASURED,
         "+/-0.5% at N=100k",
     )
 
@@ -317,6 +418,7 @@ def main() -> int:
     record(
         "Checker reliability",
         reliability_ok,
+        MEASURED,
         f"mean {aggregate.mean:.4f} over {aggregate.n_seeds} pre-registered seeds "
         f"(95% bootstrap CI [{aggregate.ci_low:.4f}, {aggregate.ci_high:.4f}], "
         f"{RELIABILITY_BOOTSTRAP_RESAMPLES} resamples); "
@@ -326,25 +428,30 @@ def main() -> int:
     )
 
     record("Validation isolation", _pytest_passes("tests/test_architecture.py"),
+           MEASURED,
            "no core imports")
 
     # These two rows are unfalsifiable pass conditions until a human checks the
     # transcribed values against the actual published standards. They must
     # read SKIP for as long as the pending-citation markers remain in source.
+    # 2026-08-01g: they are therefore ATTESTED, not measured, and say so in the
+    # status column; a PASS here prints the attestation's provenance.
     citation_pending = _marker_present(Y14_5_SRC, CITATION_PENDING_MARKER)
     record(
         "Y14.5 citation verified",
         None if citation_pending else True,
-        "CITATION PENDING HUMAN VERIFICATION marker present in y14_5.py"
-        if citation_pending else "citation verified against standard",
+        ATTESTED,
+        "PENDING: CITATION PENDING HUMAN VERIFICATION marker present in y14_5.py"
+        if citation_pending else Y14_5_ATTESTATION,
     )
 
     iso286_pending = _marker_present(ISO286_SRC, ISO286_PLACEHOLDER_MARKER)
     record(
         "ISO 286 transcription verified",
         None if iso286_pending else True,
-        "placeholder 'replace this line' present in iso286.py docstring"
-        if iso286_pending else "transcription verified against standard",
+        ATTESTED,
+        "PENDING: placeholder 'replace this line' present in iso286.py docstring"
+        if iso286_pending else ISO286_ATTESTATION,
     )
 
     # Oracles: populated in Phase 3, when generated geometry can feed both engines.
@@ -353,16 +460,18 @@ def main() -> int:
         ("TolAnalyst agreement", TOLANALYST_EXPORT, tolanalyst.load_verdicts, tolanalyst.agreement, AGREEMENT_THRESHOLD),
     ):
         if not path.exists():
-            record(name, None, f"no export at {path.name}")
+            record(name, None, MEASURED, f"no export at {path.name}")
             continue
         expected = load_fn(path)
         ours: dict[str, bool] = {}  # Phase 3: populate once generated geometry feeds both engines
         try:
             value = agreement_fn(ours, expected)
         except ValueError as exc:
-            record(name, False, f"our verdict set is empty (Phase 3 not wired up): {exc}")
+            record(name, False, MEASURED,
+                   f"our verdict set is empty (Phase 3 not wired up): {exc}")
             continue
-        record(name, value >= threshold, f"agreement {value:.4f} (>= {threshold})")
+        record(name, value >= threshold, MEASURED,
+               f"agreement {value:.4f} (>= {threshold})")
 
     # Spec section 7, criterion 7: "Fresh clone, no SW license, full pipeline runs
     # end-to-end". This requires an actual clean-clone CI run to verify honestly;
@@ -371,13 +480,33 @@ def main() -> int:
     record(
         "Fresh clone pipeline",
         None,
+        MEASURED,
         "requires a clean-clone CI run to verify honestly; not checked in-process",
     )
 
-    width = max(len(r[0]) for r in rows)
+    verdict_word = {True: "PASS", False: "FAIL", None: "SKIP"}
+    statuses = [
+        (name, f"{verdict_word[ok]}({kind})", note) for name, ok, kind, note in rows
+    ]
+    name_width = max(len(s[0]) for s in statuses)
+    status_width = max(len(s[1]) for s in statuses)
     print("\nGate A - checker correctness (blocking)\n")
-    for name, status, note in rows:
-        print(f"  {name:<{width}}  {status:<5}  {note}")
+    for name, status, note in statuses:
+        print(f"  {name:<{name_width}}  {status:<{status_width}}  {note}")
+
+    # The tally, spelled out. "6 PASS / 3 SKIP" was read as six measurements
+    # when two of the six were human attestations; the split is now printed
+    # rather than left for a reader to reconstruct from the rows.
+    def _count(ok: bool | None, kind: str | None = None) -> int:
+        return sum(1 for _, o, k, _ in rows if o is ok and (kind is None or k == kind))
+
+    n_pass, n_fail, n_skip = _count(True), _count(False), _count(None)
+    print(
+        f"\n  {n_pass} PASS ({_count(True, MEASURED)} measured, "
+        f"{_count(True, ATTESTED)} attested), {n_fail} FAIL, {n_skip} SKIP. "
+        f"An attested PASS is a human's record of checking this code against a "
+        f"published standard; the harness reads that record and cannot re-derive it."
+    )
 
     cleared = all(passes)
     print(f"\nGate A: {'CLEARED' if cleared else 'NOT CLEARED'}\n")

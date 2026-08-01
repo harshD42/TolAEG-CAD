@@ -248,8 +248,31 @@ configs. Ablations are embarrassingly parallel; results synced manually.
   is now true of the instrument it describes. Neither the 0.95 threshold, the
   seed set, nor the exclusion band was touched. Found by adversarial review
   before any data was generated.
+- *2026-08-01g (pre-data):* Gate A's report now distinguishes measured rows from
+  human attestations. Two rows ("Y14.5 citation verified", "ISO 286
+  transcription verified") PASS iff a marker string is absent from source, which
+  is an attestation; reported inside an undifferentiated "6 PASS" they read as
+  measurements. Separately, this section's criterion 1 — agreement with published
+  Y14.5 worked examples — had been renamed in the harness to "Y14.5
+  self-consistency", whose own note records it is "arithmetic derived from the
+  same two unverified formulas the implementation uses", so criterion 1 was
+  reported by nothing. The three published ASME Y14.5-2018 Nonmandatory Appendix B
+  worked examples **are** encoded as tests, at the standard's own inputs (B-3
+  F=6.0, H=6.44, T=0.44; B-4 T=0.22; B-4 unequal split T1=0.18, T2=0.26), so the
+  self-consistency objection does not reach them; criterion 1 is restored as its
+  own **measured** row pointed at those three node IDs, and the self-consistency
+  check is retained as informational. Every row now prints its evidence kind as
+  `VERDICT(measured|attested)`, attested rows print who attested, when, and
+  against which edition and table, and the report foots a tally that states the
+  split. Gate A goes from "6 PASS / 3 SKIP" to
+  **"7 PASS (5 measured, 2 attested), 0 FAIL, 3 SKIP"** — a criterion *added*,
+  none weakened or removed. Because the criterion-1 verdict is a published Gate A
+  number, it carries a declared-mutation entry
+  (`y14-5-worked-example-boundary-shifted`) that was watched failing: shifting the
+  B-3 margin 0.01 off the standard's own boundary turns the row to `FAIL(measured)`.
+  No threshold, seed set, exclusion band or table constant was touched.
 
-All six predate any experimental data. **No post-data threshold change is permitted.**
+All seven predate any experimental data. **No post-data threshold change is permitted.**
 
 **Also note for §8:** the sensitive-band margin magnitude used by the reliability mate set
 (3.5e-4, mid-band between 2ε and 5ε) was chosen after the seed was pinned. It is a free

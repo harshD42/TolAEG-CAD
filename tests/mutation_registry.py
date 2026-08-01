@@ -396,6 +396,32 @@ REGISTRY: tuple[DeclaredMutation, ...] = (
         ),
     ),
     DeclaredMutation(
+        name="y14-5-worked-example-boundary-shifted",
+        target="src/tolcad/y14_5.py",
+        find="        margin = min(margin_a, margin_b)",
+        replace="        margin = min(margin_a, margin_b) - 0.01",
+        test=(
+            "tests/test_gate_a.py::"
+            "test_criterion_one_is_restored_as_its_own_measured_row"
+        ),
+        expect="fail",
+        why=(
+            "Spec section 7's criterion 1 -- agreement with the published Y14.5 "
+            "worked examples -- is a Gate A verdict, so under R1 it needs a guard "
+            "watched failing. Until the 2026-08-01g correction it had none, "
+            "because the harness had renamed the criterion to 'Y14.5 "
+            "self-consistency' and reported criterion 1 with nothing at all. "
+            "ASME Y14.5-2018 Appendix B B-3 states F=6.0 with H=6.44 requires "
+            "T=0.44 per part, which puts the example at margin EXACTLY 0.0; "
+            "subtracting 0.01 moves the model off the standard's own boundary "
+            "and the example stops assembling. Note this mutation lives in "
+            "src/, which Layer 2 also mutates -- what Layer 2 cannot see is "
+            "whether GATE A NOTICES, because gate_a.py is a script it does not "
+            "run. That is the whole point of the entry: it targets the reported "
+            "verdict, not the formula's unit tests."
+        ),
+    ),
+    DeclaredMutation(
         name="case-sensitive-guard-uppercased",
         target="src/tolcad/gen/features.py",
         find="were checked against the primary standard",

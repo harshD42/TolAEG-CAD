@@ -133,6 +133,10 @@ _CRITICAL_GUARDS = frozenset({
     "reliability-perturbation-tripled",
     "tapped-hole-upper-dev-nonzero",
     "case-sensitive-guard-uppercased",
+    # 2026-08-01g. Spec section 7's criterion 1 is a Gate A verdict and
+    # therefore a published number under R1. It had no guard at all while the
+    # harness reported "Y14.5 self-consistency" in its place.
+    "y14-5-worked-example-boundary-shifted",
 })
 
 

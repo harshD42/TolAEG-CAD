@@ -18,6 +18,27 @@ from scripts.gate_a import (  # noqa: E402
 from tolcad.reliability import StabilityResult, verdict_stability  # noqa: E402
 
 
+def _run_gate_a_stdout() -> str:
+    """One Gate A run, stdout only. Gate A exits 1 by design (SKIPs remain)."""
+    result = subprocess.run(
+        [sys.executable, "scripts/gate_a.py"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    return result.stdout
+
+
+def _row(prefix: str, out: str) -> str:
+    """The single report line beginning with `prefix`, stripped.
+
+    `out` is REQUIRED rather than defaulted to a fresh run: each Gate A run
+    costs ~2s and re-running per row would silently multiply that, and worse,
+    would let two assertions in one test read two different runs.
+    """
+    matches = [ln.strip() for ln in out.splitlines() if ln.strip().startswith(prefix)]
+    assert len(matches) == 1, f"expected exactly one {prefix!r} row, got {matches}"
+    return matches[0]
+
+
 def test_gate_a_script_runs_without_solidworks_export():
     result = subprocess.run(
         [sys.executable, "scripts/gate_a.py"],
@@ -96,20 +117,14 @@ def test_gate_a_reports_final_wave_criteria():
     # PASS. If a marker is ever reintroduced the row must revert to SKIP.
     y14_src = (REPO / "src" / "tolcad" / "y14_5.py").read_text(encoding="utf-8")
     iso_src = (REPO / "src" / "tolcad" / "iso286.py").read_text(encoding="utf-8")
-    lines = {ln.strip() for ln in result.stdout.splitlines()}
-
-    def _row(prefix: str) -> str:
-        matches = [ln for ln in lines if ln.startswith(prefix)]
-        assert len(matches) == 1, f"expected exactly one {prefix!r} row, got {matches}"
-        return matches[0]
 
     y14_expected = "SKIP" if "CITATION PENDING" in y14_src else "PASS"
     iso_expected = "SKIP" if "replace this line" in iso_src else "PASS"
-    assert y14_expected in _row("Y14.5 citation verified")
-    assert iso_expected in _row("ISO 286 transcription verified")
+    assert y14_expected in _row("Y14.5 citation verified", result.stdout)
+    assert iso_expected in _row("ISO 286 transcription verified", result.stdout)
 
     # I6: the fresh-clone criterion cannot be checked in-process and must stay SKIP.
-    assert "SKIP" in _row("Fresh clone pipeline")
+    assert "SKIP" in _row("Fresh clone pipeline", result.stdout)
 
 
 # --- 2026-08-01e: multi-seed reliability aggregate --------------------------
@@ -369,3 +384,117 @@ def test_reliability_tested_and_excluded_are_pinned_exactly():
         f"exclusion band -- check the per-part margins against the construction rule."
     )
     assert aggregate.excluded == 0
+
+
+# --- 2026-08-01g: measured vs. attested, and criterion 1 restored ------------
+
+
+def test_gate_a_distinguishes_measured_rows_from_attested_ones():
+    """Two rows PASS because a marker string is absent from source. That is a
+    human attestation, not a measurement, and 6 PASS must not read as six."""
+    out = _run_gate_a_stdout()
+    assert "PASS(attested)" in out, (
+        "attested rows must be labelled; otherwise a reader counts them as "
+        "measurements"
+    )
+    for attested in ("Y14.5 citation verified", "ISO 286 transcription verified"):
+        line = _row(attested, out)
+        assert "attested" in line, f"{attested} is an attestation and must say so"
+
+
+def test_criterion_one_is_restored_as_its_own_measured_row():
+    """Spec section 7 criterion 1 is agreement with PUBLISHED worked examples.
+
+    gate_a renamed it to "self-consistency" and noted that is arithmetic derived
+    from the same unverified formulas -- so the published-examples criterion was
+    reported by nothing. The three examples ARE encoded; point the row at them.
+    """
+    line = _row("Y14.5 published worked examples", _run_gate_a_stdout())
+    assert "PASS" in line and "measured" in line
+
+
+def test_the_criterion_one_node_ids_exist_and_pass():
+    """ANTI-VACUITY for the row above.
+
+    The criterion-1 row is only worth its label if the selectors it names
+    actually resolve to the three published worked examples. Collect them by
+    exact node ID and require all three to run and pass: a renamed or deleted
+    test would make pytest exit 4 or 5 here, naming which selector went stale,
+    instead of leaving the Gate A row to report a bare FAIL with no diagnosis.
+    """
+    from scripts.gate_a import _Y14_5_WORKED_EXAMPLE_TESTS
+
+    assert len(_Y14_5_WORKED_EXAMPLE_TESTS) == 3, (
+        "ASME Y14.5-2018 Appendix B prints three worked examples (B-3; B-4; "
+        "B-4 unequal split); criterion 1 must name all three"
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", *_Y14_5_WORKED_EXAMPLE_TESTS, "-q", "--no-header"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        f"criterion 1's node IDs did not all collect and pass "
+        f"(pytest exit {result.returncode}):\n{result.stdout}\n{result.stderr}"
+    )
+    assert "3 passed" in result.stdout, (
+        f"expected exactly 3 tests to run, got:\n{result.stdout}"
+    )
+
+
+def test_the_attested_rows_print_their_evidence():
+    """An attestation with no provenance is just a green word.
+
+    A reader must be able to check WHO attested, WHEN, and against WHICH
+    edition and table, without leaving the report.
+    """
+    out = _run_gate_a_stdout()
+    y14 = _row("Y14.5 citation verified", out)
+    iso = _row("ISO 286 transcription verified", out)
+    for fragment in ("Harsh Dwivedi", "2026-08-01", "ASME Y14.5-2018", "Appendix B"):
+        assert fragment in y14, f"Y14.5 attestation omits {fragment!r}: {y14}"
+    for fragment in ("Harsh Dwivedi", "2026-08-01", "ISO 286-1:2010", "Table 1"):
+        assert fragment in iso, f"ISO 286 attestation omits {fragment!r}: {iso}"
+
+
+def test_the_tally_states_the_measured_attested_split():
+    """The headline count is where the misreading happened, so fix it there.
+
+    "6 PASS / 3 SKIP" invited the reader to count six measurements. The tally
+    line must state the split, and it must agree with the rows above it.
+    """
+    out = _run_gate_a_stdout()
+    tally = [ln.strip() for ln in out.splitlines() if " PASS (" in ln and "attested)" in ln]
+    assert len(tally) == 1, f"expected exactly one tally line, got {tally}"
+
+    row_lines = [
+        ln for ln in out.splitlines()
+        if ln.startswith("  ") and ("PASS(" in ln or "FAIL(" in ln or "SKIP(" in ln)
+    ]
+    measured = sum(1 for ln in row_lines if "PASS(measured)" in ln)
+    attested = sum(1 for ln in row_lines if "PASS(attested)" in ln)
+    skipped = sum(1 for ln in row_lines if "SKIP(" in ln)
+    assert f"{measured + attested} PASS ({measured} measured, {attested} attested)" in tally[0]
+    assert f"{skipped} SKIP" in tally[0]
+
+    # And the split must be non-degenerate in both directions -- a tally that
+    # said "7 measured, 0 attested" would have re-created the original defect.
+    assert measured > 0 and attested > 0
+
+
+def test_every_gate_a_row_declares_a_kind():
+    """No row may print a bare PASS/FAIL/SKIP. `record` asserts this, but the
+    assertion is only reached if `record` is actually called -- this checks the
+    rendered output, which is what a reader sees.
+    """
+    out = _run_gate_a_stdout()
+    body = out.split("Gate A - checker correctness (blocking)", 1)[1]
+    body = body.split("Gate A:", 1)[0]
+    for ln in body.splitlines():
+        if not ln.startswith("  ") or not ln.strip():
+            continue
+        if " PASS (" in ln:  # the tally line, checked separately
+            continue
+        assert any(f"{word}({kind})" in ln for word in ("PASS", "FAIL", "SKIP")
+                   for kind in ("measured", "attested")), (
+            f"report line declares no evidence kind: {ln!r}"
+        )
