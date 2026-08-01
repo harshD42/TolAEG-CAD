@@ -250,7 +250,8 @@ def test_features_module_cites_its_primary_sources():
     text = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
     assert "ISO 273" in text
     assert "ISO 2306" in text
-    assert "not been checked against the primary" not in text, (
+    assert "not been checked against the primary" not in text.lower(), (
         "the caveat was removed only because the check was done; do not "
-        "reinstate it without also removing the citations"
+        "reinstate it without also removing the citations -- checked "
+        "case-insensitively so capitalising NOT cannot evade this guard"
     )

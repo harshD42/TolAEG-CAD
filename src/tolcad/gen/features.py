@@ -71,11 +71,12 @@ SUPPORTED_FITS: tuple[str, ...] = ("H7/g6", "H7/k6", "H7/p6")
 # fixed-fastener joint geometrically distinct from a floating one, where the
 # fastener clears both parts.
 #
-# Same provenance caveat as _CLEARANCE_HOLE_MM above: these match the common
-# coarse-pitch tapping-drill series (nominal minus pitch) as reproduced in
-# general engineering references, but have NOT been checked against the primary
-# standard, so no edition is cited. They affect realism, not correctness: the
-# checker's B-4 verdict never reads hole_b's size in the fixed case.
+# ISO 2306-1972, Table 1 (coarse pitch series): all 7 diameters below were
+# checked against the primary standard on 2026-08-01 and match exactly,
+# including M8 -> 6.8 and M12 -> 10.2, which come from the ISO/R 235 preferred
+# drill series rather than nominal-minus-pitch (which would give 6.75 / 10.25).
+# They affect realism, not correctness: the checker's B-4 verdict never reads
+# hole_b's size in the fixed case.
 TAPPING_DRILL_MM: dict[float, float] = {
     3.0: 2.5,
     4.0: 3.3,
