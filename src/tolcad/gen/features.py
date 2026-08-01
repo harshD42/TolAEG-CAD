@@ -1,18 +1,39 @@
 """Canonical mating features for generated assemblies. No CAD dependency.
 
-Clearance-hole diameters follow the common metric close/normal/loose series.
-Every value below matches the ISO 273 fine/medium/coarse table as reproduced in
-general engineering references, but it has NOT been checked against the primary
-standard text the way the Y14.5 formulas and ISO 286 deviations were, so no
-edition is cited. They are ordinary table values rather than a
-standard-restricted formula, and they affect realism, not correctness: the
-checker's verdict is exact for whatever diameters it is handed. They are pinned
-by tests so a silent edit cannot drift them.
+CLEARANCE HOLES -- ISO 273-1979(E), Table 1. All 21 diameters below (M3-M12 x
+fine/medium/coarse) were checked against the primary standard on 2026-08-01 and
+match exactly. This module's internal names close/normal/loose correspond to the
+standard's fine/medium/coarse.
+
+The standard also states: "The following tolerance fields are given for
+information only, for use where it is desirable to specify tolerances: fine
+series : H12, medium series : H13, coarse series : H14." We take that option, so
+a hole's upper deviation is the IT value at ITS OWN diameter for ITS series --
+not a single constant. An earlier version applied a flat +0.2 mm described only
+as "H13-ish", which was not any of the three grades and did not vary with size.
+
+TAPPING DRILLS -- ISO 2306-1972, Table 1 (coarse pitch series). All 7 diameters
+checked against the primary standard on 2026-08-01 and match exactly. Note M8 ->
+6.8 and M12 -> 10.2 are NOT nominal-minus-pitch (that would give 6.75 and 10.25).
+ISO 2306 clause 0 says the drill diameter is only APPROXIMATELY D - P, with the
+actual sizes selected from the ISO/R 235 preferred drill series. Do not "correct"
+them to the subtraction.
+
+Every value traceable to one of those two standards -- all 21 clearance-hole
+diameters and all 7 tapping-drill diameters -- is pinned to its exact published
+figure by tests, so a silent edit cannot drift them. The one number here that no
+standard fixes, _TAPPED_HOLE_UPPER_DEV_MM, is deliberately NOT pinned to a value:
+it is arbitrary by construction, so pinning it would only assert that an
+arbitrary number has not changed. It is bounded instead, by
+test_tapped_hole_is_always_smaller_than_its_fastener, which enforces the one
+property that actually matters -- the tapped hole stays below the fastener at
+LMC, which is what makes a fixed joint geometrically distinct from a floating
+one. See the comment on the constant for why no verdict depends on it.
 """
 
 from __future__ import annotations
 
-from tolcad.iso286 import fit_from_designation
+from tolcad.iso286 import fit_from_designation, it_grade
 
 FASTENER_SIZES: tuple[float, ...] = (3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0)
 
@@ -28,8 +49,16 @@ _CLEARANCE_HOLE_MM: dict[float, tuple[float, float, float]] = {
 }
 _GRADE_INDEX = {"close": 0, "normal": 1, "loose": 2}
 
-# Hole tolerance applied to a generated clearance hole: H13-ish, +0.2/-0.0 mm.
-_HOLE_UPPER_DEV_MM = 0.2
+# ISO 273-1979 Table 1, tolerance-fields note. Grade per clearance-hole series.
+SERIES_TOLERANCE_GRADE: dict[str, int] = {"close": 12, "normal": 13, "loose": 14}
+
+# Tapped holes: ISO 2306 gives drill DIAMETERS, not tolerances, and ISO 273
+# covers clearance holes only, so no standard here fixes a grade for the tapped
+# feature. A flat band is used deliberately rather than inventing a citation.
+# This is provably inert: y14_5's B-4 formula never reads hole_b's size in the
+# fixed-fastener case (its docstring is explicit that hole_b is not a clearance
+# hole there), so no verdict in the corpus depends on this number.
+_TAPPED_HOLE_UPPER_DEV_MM = 0.2
 
 # Hole-basis fits the generator samples. One clearance (g6), one transition
 # (k6), one interference (p6).
@@ -51,11 +80,12 @@ SUPPORTED_FITS: tuple[str, ...] = ("H7/g6", "H7/k6", "H7/p6")
 # fixed-fastener joint geometrically distinct from a floating one, where the
 # fastener clears both parts.
 #
-# Same provenance caveat as _CLEARANCE_HOLE_MM above: these match the common
-# coarse-pitch tapping-drill series (nominal minus pitch) as reproduced in
-# general engineering references, but have NOT been checked against the primary
-# standard, so no edition is cited. They affect realism, not correctness: the
-# checker's B-4 verdict never reads hole_b's size in the fixed case.
+# ISO 2306-1972, Table 1 (coarse pitch series): all 7 diameters below were
+# checked against the primary standard on 2026-08-01 and match exactly,
+# including M8 -> 6.8 and M12 -> 10.2, which come from the ISO/R 235 preferred
+# drill series rather than nominal-minus-pitch (which would give 6.75 / 10.25).
+# They affect realism, not correctness: the checker's B-4 verdict never reads
+# hole_b's size in the fixed case.
 TAPPING_DRILL_MM: dict[float, float] = {
     3.0: 2.5,
     4.0: 3.3,
@@ -68,7 +98,12 @@ TAPPING_DRILL_MM: dict[float, float] = {
 
 
 def clearance_hole_for(fastener_mm: float, grade: str) -> dict:
-    """Return a checker-ready hole dict for a fastener at a clearance grade."""
+    """Return a checker-ready hole dict for a fastener at a clearance grade.
+
+    The upper deviation is the ISO 286 IT value for this series' grade AT THE
+    HOLE'S OWN DIAMETER, per the ISO 273 tolerance-fields note. Lower deviation
+    is zero: these are H holes, so MMC equals the nominal diameter.
+    """
     if fastener_mm not in _CLEARANCE_HOLE_MM:
         raise ValueError(
             f"fastener size {fastener_mm} not tabulated; have {FASTENER_SIZES}"
@@ -79,7 +114,7 @@ def clearance_hole_for(fastener_mm: float, grade: str) -> dict:
     return {
         "nominal": nominal,
         "lower_dev": 0.0,
-        "upper_dev": _HOLE_UPPER_DEV_MM,
+        "upper_dev": it_grade(nominal, SERIES_TOLERANCE_GRADE[grade]),
         "position_tol": 0.0,
     }
 
@@ -100,7 +135,7 @@ def tapped_hole_for(fastener_mm: float) -> dict:
     return {
         "nominal": TAPPING_DRILL_MM[fastener_mm],
         "lower_dev": 0.0,
-        "upper_dev": _HOLE_UPPER_DEV_MM,
+        "upper_dev": _TAPPED_HOLE_UPPER_DEV_MM,
         "position_tol": 0.0,
     }
 
