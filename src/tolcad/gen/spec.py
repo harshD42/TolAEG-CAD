@@ -30,7 +30,11 @@ class MateSpec:
     # Tier 2 (iso_fit) is a Monte Carlo estimate, so its verdict depends on the
     # sampling seed. H7/h6 is line-to-line at MMC and genuinely flips label
     # across seeds, so leaving the seed implicit made the published label an
-    # accident of tolcad.checker's fallback default. CLAUDE.md requires Tier 2
+    # accident of tolcad.checker's fallback default. (H7/h6 is no longer
+    # SAMPLED -- it left features.SUPPORTED_FITS in commit 422c21f for exactly
+    # that reason -- but iso286.fit_from_designation still supports it, so a
+    # hand-written spec can still name it, and the general point holds for any
+    # fit whose worst-case clearance lands near zero.) CLAUDE.md requires Tier 2
     # to always report a seed; carrying it here is what puts it in the sidecar
     # JSON a reproducer actually reads, not just in Verdict.detail.
     # Defaults mirror tolcad.checker's fallbacks; the sampler always sets them.
