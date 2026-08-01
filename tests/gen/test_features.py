@@ -90,16 +90,40 @@ def test_iso_fit_verdict_is_fixed_by_the_shaft_letter_at_every_size():
     letter. It therefore CANNOT vary with diameter, and no amount of nominal
     variation will make these labels harder to guess from the designation.
     Tier 2's contribution to the benchmark is the YIELD, not this boolean.
+
+    Asserting only that the verdict is CONSTANT across diameters would leave
+    the actual claim untested: the paper will cite `assembles == (es <= 0)`,
+    the MECHANISM, not merely its consequence. So the shaft's upper deviation
+    is read from iso286 at each size and compared against the verdict.
+
+    The nominals include the set the sampler actually draws from -- ISO 286
+    bands are step functions of diameter, and 10 < d <= 18 holds two sampled
+    nominals (12 and 16) that the original 6/10/20/50/120 set missed -- plus
+    6 and 120 to reach well outside the corpus.
     """
     from tolcad.checker import check
+    from tolcad.gen.sampler import _ISO_FIT_NOMINALS_MM
+    from tolcad.iso286 import fit_from_designation
 
-    nominals = (6.0, 10.0, 20.0, 50.0, 120.0)
+    nominals = tuple(sorted({6.0, 50.0, 120.0, *_ISO_FIT_NOMINALS_MM}))
+    assert {12.0, 16.0} <= set(nominals), (
+        f"the ISO band 10 < d <= 18 must be exercised; got {nominals}"
+    )
     for designation in SUPPORTED_FITS:
-        seen = {
-            check({"type": "iso_fit", "nominal": n, "designation": designation,
-                   "seed": 999, "n": 100_000}).assembles
-            for n in nominals
-        }
+        seen = set()
+        for n in nominals:
+            assembles = check({
+                "type": "iso_fit", "nominal": n, "designation": designation,
+                "seed": 999, "n": 100_000,
+            }).assembles
+            _hole, shaft = fit_from_designation(n, designation)
+            assert assembles == (shaft.upper_dev <= 0.0), (
+                f"{designation} at Ø{n}: assembles={assembles} but the shaft's "
+                f"es is {shaft.upper_dev}. The disclosure claims the verdict IS "
+                f"`es <= 0`; if that is no longer true, re-derive it before "
+                f"relying on the disclosure."
+            )
+            seen.add(assembles)
         assert len(seen) == 1, (
             f"{designation} changed verdict across {nominals}: {seen}. If this "
             f"ever fails the structural argument above is wrong -- re-derive it "

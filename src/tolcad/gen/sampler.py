@@ -49,6 +49,12 @@ _TIER1_KINDS = ("floating_fastener", "fixed_fastener")
 _MC_SEED_BASE = 10_000
 _MC_SAMPLES = 100_000
 
+# Nominal diameters an iso_fit mate is drawn from. Named rather than inline so
+# tests/gen/test_features.py can exercise the disclosure at the sizes the
+# corpus ACTUALLY contains -- 12 and 16 both sit in the ISO band 10 < d <= 18,
+# which an arbitrary test nominal set can miss entirely.
+_ISO_FIT_NOMINALS_MM: tuple[float, ...] = (10.0, 12.0, 16.0, 20.0, 25.0)
+
 # The plate thickness the sampler builds to. Also the projection distance for a
 # fixed fastener: the fastener crosses part_a's full thickness before it reaches
 # the tapped feature in part_b. Kept as one constant so the recorded projected
@@ -102,7 +108,7 @@ def _tier1_mate(rng: np.random.Generator, difficulty: int) -> MateSpec:
 
 
 def _iso_fit_mate(rng: np.random.Generator, mc_seed: int) -> MateSpec:
-    nominal = float(rng.choice((10.0, 12.0, 16.0, 20.0, 25.0)))
+    nominal = float(rng.choice(_ISO_FIT_NOMINALS_MM))
     designation = str(rng.choice(SUPPORTED_FITS))
     iso_fit_mate_features(nominal, designation)  # validates the pair
     return MateSpec(
