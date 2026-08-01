@@ -100,7 +100,12 @@ SolidWorks license. Anything license-gated lives in an optional validation scrip
 clean interface. If TolAnalyst becomes load-bearing for a main result, that is a design
 failure and must be refactored.
 
-**No internal or proprietary company data. Ever.** Open datasets and procedural generation only.
+**No internal or proprietary company data, and no disclosure of SolidWorks implementation
+details. Ever.** Open datasets and procedural generation only. TolAnalyst is used strictly as a
+black-box oracle — we report agreement rates against it, never how it works internally.
+
+Publication is cleared: the SolidWorks AI Director is co-author/advisor on the work. The
+constraint is therefore about *data and disclosure*, not about permission to publish.
 
 Justification for building the checker: OCCT can *represent* semantic PMI via XDE
 (`STEPCAFControl_Reader`/`Writer`) per AP242 recommended practices, but nothing open can
@@ -269,10 +274,12 @@ actual position legible at every stage.
 arXiv preprint on Gate D clearance regardless of venue outcome — establishes priority and is
 visible to PhD admissions committees immediately.
 
-**Non-technical dependency:** an academic co-author or letter-writer from Northeastern Khoury,
-in addition to the industry co-author. For the stated PhD-admissions goal, an academic letter
-is worth more than a marginal improvement in results. This should be pursued in parallel with
-Phase 1, not after submission.
+**Co-author/advisor:** the SolidWorks AI Director (MIT PhD, 27 patents). A strong letter for the
+stated PhD-admissions goal, and unusually well-matched to this paper's subject.
+
+**Still worth pursuing:** an additional letter-writer from Northeastern Khoury. Most committees
+want at least one letter from inside academia, and it costs little to arrange in parallel with
+Phase 1. Lower priority than previously assessed, not zero.
 
 ---
 
@@ -303,7 +310,7 @@ months spent salvaging a weak method.
 | H1 is false | Gate B null contingency — benchmark paper floor |
 | Scope creep into Tier 3 | Tier 3 explicitly out; stated as limitation |
 | Reproducibility broken by SW dependency | Import-lint test; fresh-clone check in Gate A and D |
-| IP / employer conflict | Open tooling only, no internal data, manager as co-author, written clearance before Phase 0 |
+| Accidental disclosure of internal data or SW implementation details | Open tooling only; TolAnalyst treated as a black box; co-author reviews the draft before submission |
 | Baselines won't reproduce | Budget time in Phase 4; document deviations rather than hide them |
 | Post-hoc threshold revision | Thresholds frozen in this document, in git, before Phase 4 |
 
@@ -313,7 +320,7 @@ months spent salvaging a weak method.
 
 | Phase | Work | Primary skills |
 |---|---|---|
-| 0 | Repo setup, CLAUDE.md, worktrees, **IP clearance in writing** | `init`, `using-git-worktrees` |
+| 0 | Repo setup, CLAUDE.md, worktrees | `init`, `using-git-worktrees` |
 | 1 | Literature study (≥50 papers), related-work draft, novelty defense | `pdf` |
 | 2 | Checker — TDD against Y14.5 worked examples, TolAnalyst validation, **Gate A** | `test-driven-development`, `requesting-code-review` |
 | 3 | Procedural generator | `test-driven-development` |
