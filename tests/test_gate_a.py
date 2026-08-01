@@ -216,6 +216,50 @@ def test_gate_a_reliability_row_reports_mean_ci_and_fraction():
     assert "|margin|" in row or "no mates outside the exclusion band" in row
 
 
+def test_gate_a_reliability_criterion_holds_for_the_real_measurement():
+    """The reliability row must read PASS because the MEASUREMENT says so.
+
+    Every other reliability test here either monkeypatches the aggregate or
+    checks the row's formatting, so none of them is sensitive to the real
+    measured value drifting. This one is, and it is the guard the declared
+    mutation `reliability-perturbation-tripled` exists to exercise: it closes
+    historical instance 4, a Gate A measurement whose headroom was so large
+    that no plausible degradation could move it.
+
+    HEADROOM, MEASURED RATHER THAN ASSUMED (2026-08-01, 200 pre-registered
+    seeds, 11 tested mates). Scaling the perturbation inside
+    `reliability._perturb` by k while leaving the exclusion band at epsilon:
+
+        k=1  mean 0.9982   PASS   (the shipped measurement)
+        k=2  mean 0.9518   PASS   (NOT caught -- 0.0018 above the threshold)
+        k=3  mean 0.9068   FAIL   (caught)
+
+    So this criterion notices a 3x degradation and does not notice a 2x one.
+    That is the honest bound on its sensitivity: roughly 2-3x, not the 1000x
+    of the instance it replaces, and not infinite either. If the mate set or
+    epsilon changes, re-measure these numbers -- do not carry them forward.
+
+    `tested > 0` is asserted separately: a mean of 1.0 obtained by excluding
+    every mate is a vacuous 1.0, not a passing measurement.
+    """
+    aggregate = _aggregate_reliability(
+        _RELIABILITY_MATES,
+        epsilon=_RELIABILITY_EPSILON,
+        seeds=RELIABILITY_SEEDS,
+        threshold=RELIABILITY_THRESHOLD,
+    )
+    assert aggregate.tested > 0, (
+        "every mate fell inside the exclusion band, so the reported value is a "
+        "vacuous 1.0 over an empty denominator, not a measurement of anything"
+    )
+    assert aggregate.mean >= RELIABILITY_THRESHOLD, (
+        f"Gate A's reliability criterion is no longer met by the real "
+        f"measurement: mean {aggregate.mean:.4f} over {aggregate.n_seeds} "
+        f"pre-registered seeds, threshold {RELIABILITY_THRESHOLD}. The "
+        f"threshold is pre-registered and must not be loosened to fit."
+    )
+
+
 def test_gate_a_reliability_row_is_fail_when_mean_below_threshold(monkeypatch, capsys):
     """If the mean genuinely falls below RELIABILITY_THRESHOLD, the row must
     read FAIL -- this must not be silently coerced to PASS by the reporting
