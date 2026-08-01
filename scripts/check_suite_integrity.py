@@ -25,22 +25,29 @@ CORE_MODULES = ("types", "y14_5", "iso286", "montecarlo", "checker", "reliabilit
 
 CORE_TEST_SUBSET = [f"tests/test_{name}.py" for name in CORE_MODULES]
 
-# MEASURED, not chosen. Set from an actual run on 2026-08-01 -- see Step 4.
-# A floor pinned at a round number is not a measurement, and this project's
-# drift class is precisely a threshold that stops tracking what it bounds.
+# MEASURED, not chosen. A floor pinned at a round number is not a measurement,
+# and this project's drift class is precisely a threshold that stops tracking
+# what it bounds.
 #
-# Measured 48.00% TOTAL branch coverage on 2026-08-01 via the exact
-# run_coverage() invocation below (--cov=src/tolcad, core test subset only).
-# NOTE for whoever revisits this: the six CORE_MODULES files individually
-# measure 87-100% (checker 100%, iso286 89%, montecarlo 85%, reliability 99%,
-# types 92%, y14_5 87%) -- the 48% TOTAL is diluted by src/tolcad/gen/ (0%,
-# ~222 stmts/66 branches), which is in scope for --cov=src/tolcad but not
-# exercised by CORE_TEST_SUBSET and is deliberately excluded from
-# CORE_MODULES. Pinning the measured TOTAL as-is per the task's instruction
-# to pin what is measured, not a scope-adjusted number; see
-# task-3-report.md for the uncovered-branch detail this floor does not
-# by itself surface.
-COVERAGE_FLOOR = 48.0  # measured 2026-08-01; see note above
+# Measured 91.64% TOTAL branch coverage on 2026-08-01 via the exact
+# run_coverage() invocation below (233 stmts / 15 miss / 90 branch / 12 partial;
+# checker 100.00%, reliability 98.53%, types 91.84%, iso286 88.89%,
+# y14_5 87.34%, montecarlo 85.19%).
+#
+# *** SCOPE, AND WHY IT MATTERS. *** The measurement omits src/tolcad/gen/ via
+# [tool.coverage.run] omit in pyproject.toml -- see the comment there, which is
+# the canonical explanation. In short: gen/ is deliberately outside Layer 1 and
+# Layer 2 (design spec non-goals), so its ~222 never-exercised statements were
+# pure denominator. With them in scope the TOTAL measured 48%, which meant core
+# coverage could HALVE and still clear the floor: a floor that cannot fail,
+# shipped inside the layer built to catch metrics that cannot fail. If someone
+# removes the omit, this constant becomes meaningless again -- though not
+# silently: the measurement would drop to ~48%, far below this floor, and the
+# gate would fail loudly rather than quietly stop measuring anything.
+#
+# Raising this pin is routine. LOWERING it requires a recorded reason here,
+# because a silently lowered floor is itself an instance of the drift class.
+COVERAGE_FLOOR = 91.64  # measured 2026-08-01, gen/ omitted; see note above
 
 
 def run_coverage() -> tuple[float, bool]:

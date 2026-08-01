@@ -15,6 +15,24 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.coverage.run]
+# WHY gen/ IS OMITTED -- DO NOT "FIX" THIS BY DELETING IT.
+# Layer 1 of the suite-integrity gate (scripts/check_suite_integrity.py) measures
+# branch coverage of the CHECKER CORE under the core test subset. src/tolcad/gen/
+# is deliberately outside that scope: the design spec's non-goals say CadQuery
+# mutants are slow and frequently geometrically meaningless, so gen/ is covered by
+# Layer 3 (declared mutations) instead, which is where its historical instances
+# actually lived. Leaving gen/ in scope put ~222 never-exercised statements in the
+# denominator and dragged the measured TOTAL from 92% down to 48%, which turned the
+# pinned floor into a number core coverage could HALVE without tripping -- a floor
+# that cannot fail, inside the layer built to catch exactly that. Removing this
+# omit silently restores that defect.
+omit = ["src/tolcad/gen/*"]
+
+[tool.coverage.report]
+# Two decimals so the pinned floor is a measurement, not a rounded one.
+precision = 2
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # pythonpath includes both "src" (the installed package) and "." (repo root).
