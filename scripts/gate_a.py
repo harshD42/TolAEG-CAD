@@ -9,6 +9,9 @@ from __future__ import annotations
 import pathlib
 import subprocess
 import sys
+from dataclasses import dataclass
+
+import numpy as np
 
 REPO = pathlib.Path(__file__).parent.parent
 
@@ -131,7 +134,99 @@ _RELIABILITY_MATES: list[dict] = [
     },
 ]
 _RELIABILITY_EPSILON = 1e-4
-_RELIABILITY_SEED = 20260731
+
+# --- 2026-08-01e correction ---------------------------------------------
+# A single pinned seed made the reliability PASS a one-shot Bernoulli draw:
+# measured across 1000 seeds, verdict_stability on _RELIABILITY_MATES ranges
+# 0.8333-1.0000 with mean 0.9896, and 12.2% of seeds land below the 0.95
+# threshold. The fix is NOT a different single seed; it is to stop reporting
+# a single draw at all. RELIABILITY_SEEDS below is the full pre-registered
+# seed set (0-199 inclusive) over which the mean, its bootstrap CI, and the
+# fraction of seeds individually clearing the threshold are computed. This
+# set was fixed before being run and must not be tuned or narrowed to make
+# the mean land on either side of 0.95.
+RELIABILITY_SEEDS: tuple[int, ...] = tuple(range(200))  # pre-registered 0-199, DO NOT TUNE
+
+# Percentile-bootstrap resample count for the CI on the mean reliability.
+RELIABILITY_BOOTSTRAP_RESAMPLES = 10_000
+_BOOTSTRAP_RNG_SEED = 0  # independent of RELIABILITY_SEEDS; only drives the CI
+
+
+@dataclass(frozen=True)
+class ReliabilityAggregate:
+    """Aggregate of verdict_stability over the pre-registered seed set.
+
+    mean: mean of the per-seed stability values -- this, not any single
+        seed's value, is what is compared against RELIABILITY_THRESHOLD.
+    ci_low, ci_high: 95% percentile-bootstrap CI on that mean.
+    fraction_passing: fraction of INDIVIDUAL seeds whose own stability value
+        meets RELIABILITY_THRESHOLD. Reported alongside the mean so a reader
+        can see the distribution, not just a point value; it is diagnostic,
+        not itself the pass/fail criterion.
+    tested, excluded, min_abs_margin, max_abs_margin: identical across every
+        seed by construction (they depend only on the unperturbed mates, not
+        on the perturbation draw), carried through unchanged for the
+        existing auditability of the tested |margin| band.
+    n_seeds: number of seeds aggregated over (len(RELIABILITY_SEEDS)).
+    """
+
+    mean: float
+    ci_low: float
+    ci_high: float
+    fraction_passing: float
+    tested: int
+    excluded: int
+    min_abs_margin: float | None
+    max_abs_margin: float | None
+    n_seeds: int
+
+
+def _aggregate_reliability(
+    mates: list[dict],
+    epsilon: float,
+    seeds: tuple[int, ...],
+    threshold: float,
+) -> ReliabilityAggregate:
+    """Run verdict_stability once per seed and aggregate the results.
+
+    Reports the MEAN over `seeds` (the PASS/FAIL quantity), a percentile
+    bootstrap CI on that mean, and the fraction of individual seeds that
+    independently clear `threshold`.
+    """
+    results = [verdict_stability(mates, epsilon=epsilon, seed=s) for s in seeds]
+    values = np.array([r.value for r in results], dtype=float)
+
+    # tested/excluded/margins are a function of the base (unperturbed) mates
+    # only, so every seed must agree on them; this is what lets a single
+    # tested/excluded/margin-band be reported for the whole aggregate.
+    tested = results[0].tested
+    excluded = results[0].excluded
+    min_abs_margin = results[0].min_abs_margin
+    max_abs_margin = results[0].max_abs_margin
+    assert all(
+        r.tested == tested and r.excluded == excluded for r in results
+    ), "tested/excluded must be seed-invariant (they depend only on base margins)"
+
+    mean = float(values.mean())
+
+    rng = np.random.default_rng(_BOOTSTRAP_RNG_SEED)
+    resample_idx = rng.integers(0, values.size, size=(RELIABILITY_BOOTSTRAP_RESAMPLES, values.size))
+    boot_means = values[resample_idx].mean(axis=1)
+    ci_low, ci_high = (float(x) for x in np.percentile(boot_means, [2.5, 97.5]))
+
+    fraction_passing = float((values >= threshold).mean())
+
+    return ReliabilityAggregate(
+        mean=mean,
+        ci_low=ci_low,
+        ci_high=ci_high,
+        fraction_passing=fraction_passing,
+        tested=tested,
+        excluded=excluded,
+        min_abs_margin=min_abs_margin,
+        max_abs_margin=max_abs_margin,
+        n_seeds=len(seeds),
+    )
 
 
 def _pytest_passes(target: str) -> bool:
@@ -146,7 +241,7 @@ def _marker_present(path: pathlib.Path, marker: str) -> bool:
     return marker in path.read_text(encoding="utf-8")
 
 
-def _format_margin_band(stability: StabilityResult) -> str:
+def _format_margin_band(stability: StabilityResult | ReliabilityAggregate) -> str:
     """Render the tested |margin| range for the reliability report row.
 
     This is what makes the reliability measurement auditable: it tells a
@@ -154,6 +249,10 @@ def _format_margin_band(stability: StabilityResult) -> str:
     every mate was excluded (tested == 0) there is no range to report, so a
     distinct, non-numeric fallback string is used instead of e.g. formatting
     None as a number.
+
+    Accepts either a single-seed StabilityResult or a multi-seed
+    ReliabilityAggregate: both expose tested/min_abs_margin/max_abs_margin,
+    and for the aggregate those are seed-invariant (see _aggregate_reliability).
     """
     if stability.tested:
         return f"|margin| in [{stability.min_abs_margin:.2e}, {stability.max_abs_margin:.2e}]"
@@ -186,16 +285,24 @@ def main() -> int:
     )
 
     reliability_tests_pass = _pytest_passes("tests/test_reliability.py")
-    stability = verdict_stability(
-        _RELIABILITY_MATES, epsilon=_RELIABILITY_EPSILON, seed=_RELIABILITY_SEED
+    aggregate = _aggregate_reliability(
+        _RELIABILITY_MATES,
+        epsilon=_RELIABILITY_EPSILON,
+        seeds=RELIABILITY_SEEDS,
+        threshold=RELIABILITY_THRESHOLD,
     )
-    reliability_ok = reliability_tests_pass and stability.value >= RELIABILITY_THRESHOLD
-    band = _format_margin_band(stability)
+    # PASS/FAIL is decided on the MEAN over the pre-registered seed set, never
+    # on any single seed's value (see the 2026-08-01e correction log entry).
+    reliability_ok = reliability_tests_pass and aggregate.mean >= RELIABILITY_THRESHOLD
+    band = _format_margin_band(aggregate)
     record(
         "Checker reliability",
         reliability_ok,
-        f"measured {stability.value:.4f} (tested={stability.tested}, "
-        f"excluded={stability.excluded}, tested {band}); "
+        f"mean {aggregate.mean:.4f} over {aggregate.n_seeds} pre-registered seeds "
+        f"(95% bootstrap CI [{aggregate.ci_low:.4f}, {aggregate.ci_high:.4f}], "
+        f"{RELIABILITY_BOOTSTRAP_RESAMPLES} resamples); "
+        f"fraction of seeds >= {RELIABILITY_THRESHOLD}: {aggregate.fraction_passing:.4f} "
+        f"(tested={aggregate.tested}, excluded={aggregate.excluded}, tested {band}); "
         f"threshold {RELIABILITY_THRESHOLD}",
     )
 

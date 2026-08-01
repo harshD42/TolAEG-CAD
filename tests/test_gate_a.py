@@ -2,11 +2,20 @@ import subprocess
 import sys
 import pathlib
 
+import pytest
+
 REPO = pathlib.Path(__file__).parent.parent
 
 sys.path.insert(0, str(REPO))
-from scripts.gate_a import _format_margin_band  # noqa: E402
-from tolcad.reliability import StabilityResult  # noqa: E402
+from scripts.gate_a import (  # noqa: E402
+    RELIABILITY_SEEDS,
+    RELIABILITY_THRESHOLD,
+    _aggregate_reliability,
+    _format_margin_band,
+    _RELIABILITY_EPSILON,
+    _RELIABILITY_MATES,
+)
+from tolcad.reliability import StabilityResult, verdict_stability  # noqa: E402
 
 
 def test_gate_a_script_runs_without_solidworks_export():
@@ -76,8 +85,10 @@ def test_gate_a_reports_final_wave_criteria():
     ]:
         assert criterion in result.stdout, f"missing criterion: {criterion}"
 
-    # C3: the reliability row must show a measured value, not just PASS/FAIL.
-    assert "measured" in result.stdout
+    # C3, revised by 2026-08-01e: the reliability row must show the multi-seed
+    # aggregate (mean over the pre-registered seed set), not just PASS/FAIL
+    # and not a single pinned-seed value.
+    assert "mean" in result.stdout
 
     # C4: these two rows must TRACK their source markers rather than being
     # hardcoded either way. Both citations were verified against the primary
@@ -99,3 +110,137 @@ def test_gate_a_reports_final_wave_criteria():
 
     # I6: the fresh-clone criterion cannot be checked in-process and must stay SKIP.
     assert "SKIP" in _row("Fresh clone pipeline")
+
+
+# --- 2026-08-01e: multi-seed reliability aggregate --------------------------
+#
+# These tests guard against the exact failure mode the amendment describes:
+# a reliability row backed by one lucky (or unlucky) seed rather than a
+# stable, auditable, pre-registered aggregate.
+
+
+def test_reliability_seed_set_is_the_full_pre_registered_range():
+    """The seed set is 0-199 inclusive, fixed before any seed was run."""
+    assert RELIABILITY_SEEDS == tuple(range(200))
+    assert len(RELIABILITY_SEEDS) == 200
+
+
+def test_aggregate_reliability_uses_every_seed_not_one():
+    """The aggregate's mean must actually reflect all 200 seeds, not a single one.
+
+    Constructed so the check is falsifiable: computing the aggregate mean by
+    hand from the individual per-seed verdict_stability(...).value calls must
+    match `_aggregate_reliability`'s reported mean. A single-seed
+    implementation (or one that silently only uses seed 0) would fail this
+    for any mate set whose per-seed value actually varies.
+    """
+    aggregate = _aggregate_reliability(
+        _RELIABILITY_MATES,
+        epsilon=_RELIABILITY_EPSILON,
+        seeds=RELIABILITY_SEEDS,
+        threshold=RELIABILITY_THRESHOLD,
+    )
+    assert aggregate.n_seeds == 200
+
+    per_seed_values = [
+        verdict_stability(_RELIABILITY_MATES, epsilon=_RELIABILITY_EPSILON, seed=s).value
+        for s in RELIABILITY_SEEDS
+    ]
+    # The per-seed values must not all be identical -- otherwise this test
+    # could not distinguish a real aggregate from a single-seed stand-in.
+    assert len(set(per_seed_values)) > 1, (
+        "per-seed reliability values are all identical; this test cannot "
+        "falsify a single-seed implementation with this mate set"
+    )
+    expected_mean = sum(per_seed_values) / len(per_seed_values)
+    assert aggregate.mean == pytest.approx(expected_mean)
+
+
+def test_fraction_passing_is_consistent_with_per_seed_values():
+    """fraction_passing must equal the fraction of INDIVIDUAL seeds whose own
+    stability value meets RELIABILITY_THRESHOLD -- computed independently
+    here directly from verdict_stability, not by re-reading the aggregate's
+    internals.
+    """
+    aggregate = _aggregate_reliability(
+        _RELIABILITY_MATES,
+        epsilon=_RELIABILITY_EPSILON,
+        seeds=RELIABILITY_SEEDS,
+        threshold=RELIABILITY_THRESHOLD,
+    )
+    per_seed_values = [
+        verdict_stability(_RELIABILITY_MATES, epsilon=_RELIABILITY_EPSILON, seed=s).value
+        for s in RELIABILITY_SEEDS
+    ]
+    expected_fraction = sum(v >= RELIABILITY_THRESHOLD for v in per_seed_values) / len(per_seed_values)
+    assert aggregate.fraction_passing == pytest.approx(expected_fraction)
+
+
+def test_aggregate_reliability_reports_mean_ci_and_tested_band():
+    """The aggregate's CI must actually bracket the mean, and tested/excluded
+    counts (the auditability the amendment requires be kept) must still be
+    present and non-negative.
+    """
+    aggregate = _aggregate_reliability(
+        _RELIABILITY_MATES,
+        epsilon=_RELIABILITY_EPSILON,
+        seeds=RELIABILITY_SEEDS,
+        threshold=RELIABILITY_THRESHOLD,
+    )
+    assert aggregate.ci_low <= aggregate.mean <= aggregate.ci_high
+    assert aggregate.tested >= 0
+    assert aggregate.excluded >= 0
+    assert 0.0 <= aggregate.fraction_passing <= 1.0
+
+
+def test_gate_a_reliability_row_reports_mean_ci_and_fraction():
+    """The printed gate row -- not just the underlying dataclass -- must show
+    the mean, its bootstrap CI, and the fraction of seeds individually
+    passing, so a reader sees the distribution rather than a point value.
+    """
+    result = subprocess.run(
+        [sys.executable, "scripts/gate_a.py"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    lines = [ln for ln in result.stdout.splitlines() if ln.strip().startswith("Checker reliability")]
+    assert len(lines) == 1, f"expected exactly one reliability row, got {lines}"
+    row = lines[0]
+
+    assert "mean" in row
+    assert "pre-registered seeds" in row
+    assert "CI" in row
+    assert "fraction of seeds" in row
+    # The tested/excluded auditability from before this amendment must survive.
+    assert "tested=" in row
+    assert "excluded=" in row
+    assert "|margin|" in row or "no mates outside the exclusion band" in row
+
+
+def test_gate_a_reliability_row_is_fail_when_mean_below_threshold(monkeypatch, capsys):
+    """If the mean genuinely falls below RELIABILITY_THRESHOLD, the row must
+    read FAIL -- this must not be silently coerced to PASS by the reporting
+    layer. Uses a monkeypatched aggregate (not a tuned seed range) so the
+    test doesn't depend on ever actually observing a real FAIL run. Calls
+    main() in-process (rather than via subprocess) so the monkeypatch, which
+    only affects this process, actually takes effect.
+    """
+    import scripts.gate_a as gate_a_module
+
+    fake_aggregate = gate_a_module.ReliabilityAggregate(
+        mean=0.90,
+        ci_low=0.85,
+        ci_high=0.95,
+        fraction_passing=0.80,
+        tested=11,
+        excluded=1,
+        min_abs_margin=3.5e-4,
+        max_abs_margin=0.45,
+        n_seeds=200,
+    )
+    monkeypatch.setattr(gate_a_module, "_aggregate_reliability", lambda *a, **k: fake_aggregate)
+
+    gate_a_module.main()
+    out = capsys.readouterr().out
+    lines = [ln for ln in out.splitlines() if ln.strip().startswith("Checker reliability")]
+    assert len(lines) == 1
+    assert "FAIL" in lines[0]
