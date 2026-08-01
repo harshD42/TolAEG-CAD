@@ -33,27 +33,56 @@ class MateSpec:
             raise ValueError(
                 f"unknown mate kind {self.kind!r}; have {sorted(VALID_KINDS)}"
             )
-        if self.kind == "iso_fit" and not self.designation:
-            raise ValueError("iso_fit mate requires a designation such as 'H7/g6'")
-        if self.kind != "iso_fit" and self.fastener is None:
-            raise ValueError(f"{self.kind} mate requires a fastener")
+        if self.kind == "iso_fit":
+            if not self.designation:
+                raise ValueError("iso_fit mate requires a designation such as 'H7/g6'")
+        elif self.kind == "virtual_condition":
+            if self.fastener is None:
+                raise ValueError("virtual_condition mate requires a fastener")
+            if self.hole_a is None:
+                raise ValueError("virtual_condition mate requires hole_a")
+        else:  # floating_fastener or fixed_fastener
+            if self.fastener is None:
+                raise ValueError(f"{self.kind} mate requires a fastener")
+            if self.hole_a is None:
+                raise ValueError(f"{self.kind} mate requires hole_a")
+            if self.hole_b is None:
+                raise ValueError(f"{self.kind} mate requires hole_b")
 
     def to_check_dict(self) -> dict:
-        """Return the dict accepted by tolcad.checker.check."""
+        """Return the dict accepted by tolcad.checker.check.
+
+        Injects position_tol from dedicated fields into the hole/fastener dicts,
+        making them the single source of truth and preventing silent divergence.
+        """
         if self.kind == "iso_fit":
             return {
                 "type": "iso_fit",
                 "nominal": self.nominal_mm,
                 "designation": self.designation,
             }
+
+        # For all Tier 1 mates, inject position_tol into the hole/fastener dicts.
+        # position_tol_a and position_tol_b are the single source of truth.
+        def inject_position_tol(feature_dict: dict, position_tol: float) -> dict:
+            """Create a new dict with position_tol injected."""
+            result = dict(feature_dict)
+            result["position_tol"] = position_tol
+            return result
+
         if self.kind == "virtual_condition":
-            return {"type": "virtual_condition", "pin": self.fastener,
-                    "hole": self.hole_a}
+            return {
+                "type": "virtual_condition",
+                "pin": inject_position_tol(self.fastener, self.position_tol_a),
+                "hole": inject_position_tol(self.hole_a, self.position_tol_a),
+            }
+
+        # floating_fastener or fixed_fastener
         return {
             "type": self.kind,
-            "hole_a": self.hole_a,
-            "hole_b": self.hole_b,
-            "fastener": self.fastener,
+            "hole_a": inject_position_tol(self.hole_a, self.position_tol_a),
+            "hole_b": inject_position_tol(self.hole_b, self.position_tol_b),
+            "fastener": inject_position_tol(self.fastener, self.position_tol_a),
         }
 
 
