@@ -106,8 +106,10 @@ def fastener_assembles(
       tolerances enter only as a sum.
 
     Both forms reduce to the classic Y14.5 single-hole formulas in the
-    symmetric case (H_a = H_b = H, T_a = T_b = T/2... i.e. equal parts):
+    symmetric case (H_a = H_b = H, T_a = T_b = T, i.e. equal parts):
     floating -> T = H - F per part, fixed -> T = (H - F) / 2 per part.
+    (Floating: 2(H-F) - 2T = 0 -> T = H - F. Fixed: (H-F) - 2T = 0 ->
+    T = (H-F) / 2.)
 
     Assembles iff margin >= -EPS.
 

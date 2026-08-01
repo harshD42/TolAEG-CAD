@@ -220,8 +220,24 @@ configs. Ablations are embarrassingly parallel; results synced manually.
 - *2026-07-31d:* Gate D baseline-reproduction criterion replaced. Published numbers for the
   same baseline on the same dataset disagree by up to 15 points across papers, so ±5% was
   unmeetable. Replaced with CADBench unified-protocol reproduction.
+- *2026-08-01e:* **Gate A reliability must be measured as a multi-seed aggregate, not a
+  single draw.** As first implemented, the criterion evaluated `verdict_stability` at one
+  pinned seed. Measured across 1000 seeds the value ranges 0.8333–1.0000 with mean 0.9896,
+  and **12.2% of seeds fall below the 0.95 threshold** — so the reported PASS was one
+  Bernoulli draw with roughly 88% pass probability. Worse, at 12 tested mates the only values
+  reachable near the threshold are 1.0000 and 0.9167, making 0.95 *degenerate*: it silently
+  means "zero flips out of twelve" and no value can land between. The **threshold stays
+  0.95 and the mate set stays fixed**; only the estimator changes — report the mean over a
+  pre-registered seed set (0–199) with a bootstrap CI and the fraction of seeds passing, and
+  compare the mean to 0.95. Disclosed openly because the single-seed 1.0000 currently printed
+  by `scripts/gate_a.py` is not a stable property of the checker.
 
-All four predate any experimental data. **No post-data threshold change is permitted.**
+All five predate any experimental data. **No post-data threshold change is permitted.**
+
+**Also note for §8:** the sensitive-band margin magnitude used by the reliability mate set
+(3.5e-4, mid-band between 2ε and 5ε) was chosen after the seed was pinned. It is a free
+parameter — a smaller value fails more often — and must be declared as a design choice in the
+paper rather than presented as forced.
 
 ### Gate A — Checker correctness (blocking)
 
