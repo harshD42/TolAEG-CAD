@@ -142,25 +142,47 @@ def test_unknown_distribution_after_both_names_lexically_is_rejected():
         sample_size(hole, rng, n=10, distribution="zzz")
 
 
+def _uninterned(text: str) -> str:
+    """A string equal to `text` but guaranteed NOT to be the interned literal.
+
+    `"".join([text])` does NOT do this, though an earlier version of these
+    tests assumed it did: CPython's str.join has a single-element fast path
+    that returns the item itself, so the result IS the interned literal and an
+    `is` mutant sails through. Splitting into two pieces forces a real
+    concatenation into a fresh object. The asserts make this helper fail loudly
+    if CPython ever changes, rather than silently going back to being a no-op.
+    """
+    assert len(text) >= 2
+    built = "".join([text[:1], text[1:]])
+    assert built == text and built is not text, (
+        "the interning-defeat helper has stopped defeating interning"
+    )
+    return built
+
+
 def test_uniform_matched_by_equality_not_identity():
     """Guards against `==` degrading to `is`; CPython interns identifier-
-    shaped literals, so a literal "uniform" here could coincidentally share
-    identity with the literal in montecarlo.py. Build the string at runtime
-    so identity cannot coincide by accident.
+    shaped literals, so a literal "uniform" here shares identity with the
+    literal in montecarlo.py and would satisfy an `is` mutant.
+
+    This test previously used `"".join(["uniform"])`, which returns the
+    interned literal unchanged -- so it did NOT kill the `distribution is
+    "uniform"` mutant, despite the triage recording it as killed. Verified:
+    the whole core subset stayed green under that mutant.
     """
     hole = FeatureOfSize(20.0, 0.0, 0.021, FeatureType.INTERNAL)
     rng = np.random.default_rng(0)
-    distribution = "".join(["uniform"])
+    distribution = _uninterned("uniform")
     samples = sample_size(hole, rng, n=1_000, distribution=distribution)
     assert samples.min() >= hole.min_size
     assert samples.max() <= hole.max_size
 
 
 def test_normal_matched_by_equality_not_identity():
-    """Same reasoning as above, for the "normal" branch."""
+    """Same reasoning and same correction as above, for the "normal" branch."""
     hole = FeatureOfSize(20.0, 0.0, 0.021, FeatureType.INTERNAL)
     rng = np.random.default_rng(0)
-    distribution = "".join(["normal"])
+    distribution = _uninterned("normal")
     samples = sample_size(hole, rng, n=1_000, distribution=distribution)
     assert samples.min() >= hole.min_size
     assert samples.max() <= hole.max_size
