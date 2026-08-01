@@ -12,6 +12,7 @@ import numpy as np
 
 from tolcad.gen.features import (
     FASTENER_SIZES, SUPPORTED_FITS, clearance_hole_for, iso_fit_mate_features,
+    tapped_hole_for,
 )
 from tolcad.gen.layout import plate_size_for_mates
 from tolcad.gen.spec import AssemblySpec, MateSpec
@@ -72,11 +73,18 @@ def _tier1_mate(rng: np.random.Generator, difficulty: int) -> MateSpec:
     tol_a = round(allowable * float(rng.uniform(lo, hi)), 4)
     tol_b = round(allowable * float(rng.uniform(lo, hi)), 4)
 
+    # hole_a is always the clearance hole the fastener passes through. hole_b is
+    # a second clearance hole for a floating joint, but a TAPPED hole for a fixed
+    # one -- that difference is what lets the exported STEP express which Y14.5
+    # formula applies. Without it the two kinds were byte-identical geometry
+    # carrying different ground truth, which is unlearnable by construction.
+    hole_b = hole if kind == "floating_fastener" else tapped_hole_for(fastener_mm)
+
     return MateSpec(
         kind=kind,
         nominal_mm=fastener_mm,
         hole_a=dict(hole, position_tol=tol_a),
-        hole_b=dict(hole, position_tol=tol_b),
+        hole_b=dict(hole_b, position_tol=tol_b),
         fastener=fastener,
         designation=None,
         position_tol_a=tol_a,

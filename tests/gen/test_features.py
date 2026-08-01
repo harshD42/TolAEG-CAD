@@ -123,3 +123,37 @@ def test_iso_fit_yield_does_vary_with_size():
     assert len(set(yields.values())) > 1, (
         f"H7/k6 yield is constant across diameters: {yields}"
     )
+
+
+def test_tapping_drill_is_tabulated_for_every_fastener_size():
+    from tolcad.gen.features import TAPPING_DRILL_MM
+    assert set(TAPPING_DRILL_MM) == set(FASTENER_SIZES)
+
+
+@pytest.mark.parametrize("fastener_mm, expected", [
+    (3.0, 2.5), (4.0, 3.3), (5.0, 4.2), (6.0, 5.0),
+    (8.0, 6.8), (10.0, 8.5), (12.0, 10.2),
+])
+def test_tapped_hole_matches_the_coarse_pitch_series(fastener_mm, expected):
+    from tolcad.gen.features import tapped_hole_for
+    assert tapped_hole_for(fastener_mm)["nominal"] == pytest.approx(expected)
+
+
+def test_tapped_hole_is_always_smaller_than_its_fastener():
+    """This is what makes a fixed joint geometrically distinguishable.
+
+    A tapped hole the fastener could pass through would be a clearance hole,
+    and the two fastener kinds would look identical again.
+    """
+    from tolcad.gen.features import tapped_hole_for
+    for f in FASTENER_SIZES:
+        hole = tapped_hole_for(f)
+        assert hole["nominal"] + hole["upper_dev"] < f, (
+            f"M{f} tapped hole is not smaller than the fastener at LMC"
+        )
+
+
+def test_unknown_fastener_size_rejected_by_tapped_hole():
+    from tolcad.gen.features import tapped_hole_for
+    with pytest.raises(ValueError, match="fastener"):
+        tapped_hole_for(7.0)

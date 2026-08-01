@@ -120,3 +120,43 @@ def test_monte_carlo_seeds_are_unique_within_an_assembly():
         spec = sample_assembly(seed, MAX_DIFFICULTY)
         iso_seeds = [m.mc_seed for m in spec.mates if m.kind == "iso_fit"]
         assert len(iso_seeds) == len(set(iso_seeds))
+
+
+def test_fixed_fasteners_get_a_tapped_hole_b_and_floating_ones_do_not():
+    """Guards I4: identical geometry for two kinds with different formulas.
+
+    Before this, hole_a and hole_b carried the same clearance diameter for
+    both kinds, so the exported STEP could not express which formula applied.
+    """
+    seen_fixed = seen_floating = 0
+    for seed in range(60):
+        for difficulty in (1, 2, 3, 4):
+            for mate in sample_assembly(seed, difficulty).mates:
+                if mate.kind == "fixed_fastener":
+                    seen_fixed += 1
+                    assert mate.hole_b["nominal"] < mate.nominal_mm, (
+                        "a fixed fastener's hole_b must be tapped, i.e. smaller "
+                        "than the fastener"
+                    )
+                elif mate.kind == "floating_fastener":
+                    seen_floating += 1
+                    assert mate.hole_b["nominal"] > mate.nominal_mm, (
+                        "a floating fastener's hole_b must be a clearance hole"
+                    )
+    assert seen_fixed > 0 and seen_floating > 0, "corpus lacks one of the kinds"
+
+
+def test_a_fixed_mate_is_structurally_not_a_floating_mate():
+    """The geometry itself now encodes which formula applies.
+
+    A tapped hole_b cannot pass the fastener, so submitting a fixed mate as
+    floating raises. That is the invariant making the two kinds learnable.
+    """
+    fixed = next(
+        m for seed in range(60)
+        for m in sample_assembly(seed, 4).mates
+        if m.kind == "fixed_fastener"
+    )
+    as_floating = dict(fixed.to_check_dict(), type="floating_fastener")
+    with pytest.raises(ValueError, match="hole_b MMC"):
+        check(as_floating)
