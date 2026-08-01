@@ -2,7 +2,7 @@
 name = "tolcad"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.26"]
+dependencies = ["numpy==2.4.1"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "cosmic-ray>=8.3"]

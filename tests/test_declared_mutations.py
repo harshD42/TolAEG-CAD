@@ -119,6 +119,7 @@ _CRITICAL_GUARDS = frozenset({
     "it7-row-transposed",
     "it-grade-set-widened",
     "flat-difficulty-ladder",
+    "ladder-d2-row-shifted",
     "zeroed-wall-margin",
     "stale-literal-wall-floor",
     "crlf-corrupted-nist-fixture",

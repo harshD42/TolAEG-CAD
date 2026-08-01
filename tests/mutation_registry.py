@@ -237,6 +237,20 @@ REGISTRY: tuple[DeclaredMutation, ...] = (
         ),
     ),
     DeclaredMutation(
+        name="ladder-d2-row-shifted",
+        target="src/tolcad/gen/sampler.py",
+        find="    2: (0.65, 1.16),",
+        replace="    2: (0.70, 1.24),",
+        test="tests/gen/test_ladder_pin.py::test_each_ladder_level_matches_its_exact_pinned_counts",
+        expect="fail",
+        why=(
+            "The monotonicity guard bands only d1 and d4. QA demonstrated d2 and "
+            "d3 can move up to 19.3 percentage points with every guard green, and "
+            "flat-difficulty-ladder targets the d4 row only. These four counts go "
+            "into the pre-registration."
+        ),
+    ),
+    DeclaredMutation(
         name="stale-literal-wall-floor",
         target="tests/gen/test_layout.py",
         find="_LITERAL_WALL_FLOOR_MM = 3.8",
