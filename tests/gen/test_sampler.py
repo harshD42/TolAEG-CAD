@@ -160,3 +160,29 @@ def test_a_fixed_mate_is_structurally_not_a_floating_mate():
     as_floating = dict(fixed.to_check_dict(), type="floating_fastener")
     with pytest.raises(ValueError, match="hole_b MMC"):
         check(as_floating)
+
+
+def test_every_sampled_fixed_fastener_records_its_projected_zone():
+    seen = 0
+    for seed in range(60):
+        for difficulty in (1, 2, 3, 4):
+            spec = sample_assembly(seed, difficulty)
+            for mate in spec.mates:
+                if mate.kind != "fixed_fastener":
+                    assert mate.projected_zone_mm is None
+                    continue
+                seen += 1
+                assert mate.projected_zone_mm == pytest.approx(
+                    spec.plate_thickness_mm
+                ), "the projection is the thickness the fastener passes through"
+    assert seen > 0, "no fixed fasteners sampled"
+
+
+def test_projected_zone_survives_the_sidecar_round_trip():
+    from tolcad.gen.spec import AssemblySpec
+    spec = next(
+        s for seed in range(60)
+        for s in [sample_assembly(seed, 4)]
+        if any(m.kind == "fixed_fastener" for m in s.mates)
+    )
+    assert AssemblySpec.from_json(spec.to_json()) == spec

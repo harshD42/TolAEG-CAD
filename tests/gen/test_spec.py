@@ -180,6 +180,7 @@ def test_fixed_fastener_mate_round_trip():
         designation=None,
         position_tol_a=0.0,
         position_tol_b=0.0,
+        projected_zone_mm=8.0,
     )
     verdict = check(mate.to_check_dict())
     assert verdict.margin == pytest.approx(1.0)
@@ -225,4 +226,63 @@ def test_fixed_fastener_rejects_missing_hole_a():
             designation=None,
             position_tol_a=0.0,
             position_tol_b=0.0,
+            projected_zone_mm=8.0,
         )
+
+
+def test_fixed_fastener_requires_a_projected_zone():
+    """y14_5.py names the projected zone a precondition of its B-4 formula.
+
+    Without one, the recorded verdict is optimistic and the schema does not
+    say so. Refusing to build such a mate is how that stays true.
+    """
+    with pytest.raises(ValueError, match="projected_zone_mm"):
+        MateSpec(
+            kind="fixed_fastener", nominal_mm=8.0,
+            hole_a={"nominal": 9.0, "lower_dev": 0.0, "upper_dev": 0.2},
+            hole_b={"nominal": 6.8, "lower_dev": 0.0, "upper_dev": 0.2},
+            fastener={"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
+            designation=None, position_tol_a=0.2, position_tol_b=0.2,
+        )
+
+
+def test_projected_zone_must_be_positive():
+    with pytest.raises(ValueError, match="projected_zone_mm"):
+        MateSpec(
+            kind="fixed_fastener", nominal_mm=8.0,
+            hole_a={"nominal": 9.0, "lower_dev": 0.0, "upper_dev": 0.2},
+            hole_b={"nominal": 6.8, "lower_dev": 0.0, "upper_dev": 0.2},
+            fastener={"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
+            designation=None, position_tol_a=0.2, position_tol_b=0.2,
+            projected_zone_mm=0.0,
+        )
+
+
+def test_non_fixed_kinds_must_not_carry_a_projected_zone():
+    """B-3 (floating) has no projection term; carrying one would imply it does."""
+    with pytest.raises(ValueError, match="projected_zone_mm"):
+        MateSpec(
+            kind="floating_fastener", nominal_mm=8.0,
+            hole_a={"nominal": 9.0, "lower_dev": 0.0, "upper_dev": 0.2},
+            hole_b={"nominal": 9.0, "lower_dev": 0.0, "upper_dev": 0.2},
+            fastener={"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
+            designation=None, position_tol_a=0.2, position_tol_b=0.2,
+            projected_zone_mm=8.0,
+        )
+
+
+def test_projected_zone_is_not_sent_to_the_checker():
+    """B-4 has no P term -- that is B-5, which tolcad does not implement.
+
+    Emitting it would imply the checker consumes it, which it does not.
+    """
+    mate = MateSpec(
+        kind="fixed_fastener", nominal_mm=8.0,
+        hole_a={"nominal": 9.0, "lower_dev": 0.0, "upper_dev": 0.2},
+        hole_b={"nominal": 6.8, "lower_dev": 0.0, "upper_dev": 0.2},
+        fastener={"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
+        designation=None, position_tol_a=0.2, position_tol_b=0.2,
+        projected_zone_mm=8.0,
+    )
+    assert "projected_zone_mm" not in mate.to_check_dict()
+    assert check(mate.to_check_dict()).assembles is True

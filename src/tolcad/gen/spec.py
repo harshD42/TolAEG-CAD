@@ -36,6 +36,17 @@ class MateSpec:
     # Defaults mirror tolcad.checker's fallbacks; the sampler always sets them.
     mc_seed: int = 0
     mc_n: int = 100_000
+    # ASME Y14.5 Appendix B-4 -- the formula y14_5.fastener_assembles implements
+    # for the fixed case -- is titled "...When Projected Tolerance Zone Is Used"
+    # and assumes exactly that. y14_5.py states the precondition outright: apply
+    # B-4 without a projected zone and the margin is OPTIMISTIC, i.e. unsafe.
+    # B-5 covers the non-projected case with a (1 + 2P/D) multiplier on T2, and
+    # tolcad does NOT implement it. Recording the projection here is how the
+    # published schema states the condition its verdict is valid under.
+    # The projection is the thickness of the part the fastener crosses before
+    # reaching the tapped feature. Required and positive for fixed_fastener;
+    # None for every other kind, since no other formula has a projection term.
+    projected_zone_mm: float | None = None
 
     def __post_init__(self) -> None:
         if self.mc_n <= 0:
@@ -43,6 +54,12 @@ class MateSpec:
         if self.kind not in VALID_KINDS:
             raise ValueError(
                 f"unknown mate kind {self.kind!r}; have {sorted(VALID_KINDS)}"
+            )
+        if self.kind != "fixed_fastener" and self.projected_zone_mm is not None:
+            raise ValueError(
+                f"projected_zone_mm applies only to fixed_fastener (Y14.5 B-4); "
+                f"{self.kind} carries no projection term, got "
+                f"{self.projected_zone_mm}"
             )
         if self.kind == "iso_fit":
             if not self.designation:
@@ -59,6 +76,15 @@ class MateSpec:
                 raise ValueError(f"{self.kind} mate requires hole_a")
             if self.hole_b is None:
                 raise ValueError(f"{self.kind} mate requires hole_b")
+            if self.kind == "fixed_fastener" and not (
+                self.projected_zone_mm is not None and self.projected_zone_mm > 0.0
+            ):
+                raise ValueError(
+                    "fixed_fastener requires a positive projected_zone_mm: "
+                    "y14_5 implements ASME Y14.5 B-4, which assumes a projected "
+                    "tolerance zone, and is optimistic without one. Got "
+                    f"{self.projected_zone_mm}"
+                )
 
     def to_check_dict(self) -> dict:
         """Return the dict accepted by tolcad.checker.check.

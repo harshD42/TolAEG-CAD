@@ -49,6 +49,12 @@ _TIER1_KINDS = ("floating_fastener", "fixed_fastener")
 _MC_SEED_BASE = 10_000
 _MC_SAMPLES = 100_000
 
+# The plate thickness the sampler builds to. Also the projection distance for a
+# fixed fastener: the fastener crosses part_a's full thickness before it reaches
+# the tapped feature in part_b. Kept as one constant so the recorded projected
+# zone and the built geometry cannot drift apart.
+_PLATE_THICKNESS_MM = 8.0
+
 
 def _mc_seed_for(seed: int, mate_index: int) -> int:
     """Deterministic, collision-free Monte Carlo seed for one mate."""
@@ -89,6 +95,9 @@ def _tier1_mate(rng: np.random.Generator, difficulty: int) -> MateSpec:
         designation=None,
         position_tol_a=tol_a,
         position_tol_b=tol_b,
+        projected_zone_mm=(
+            _PLATE_THICKNESS_MM if kind == "fixed_fastener" else None
+        ),
     )
 
 
@@ -125,4 +134,5 @@ def sample_assembly(seed: int, difficulty: int) -> AssemblySpec:
         difficulty=difficulty,
         mates=mates,
         plate_size_mm=plate_size_for_mates(mates),
+        plate_thickness_mm=_PLATE_THICKNESS_MM,
     )
