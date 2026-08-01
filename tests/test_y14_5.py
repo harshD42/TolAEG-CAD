@@ -77,10 +77,12 @@ def test_floating_fastener_assembles_at_allowable_tolerance():
 
 
 def test_floating_fastener_fails_above_allowable_tolerance():
+    # H_a=H_b=8.5, F=8.0, T_a=T_b=0.6:
+    # margin = (8.5-8.0) + (8.5-8.0) - (0.6+0.6) = 1.0 - 1.2 = -0.2
     hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.6)
     verdict = fastener_assembles(hole, hole, M8_BOLT, condition="floating")
     assert verdict.assembles is False
-    assert verdict.margin == pytest.approx(-0.1)
+    assert verdict.margin == pytest.approx(-0.2)
 
 
 def test_fixed_fastener_is_stricter_than_floating():
@@ -91,21 +93,82 @@ def test_fixed_fastener_is_stricter_than_floating():
 
 
 def test_asymmetric_holes_worse_on_hole_a():
-    """Worse tolerance on hole_a (0.6 > allowable 0.5) must fail."""
+    """H_a=H_b=8.5, F=8.0, T_a=0.6, T_b=0.1: worst-case axis separation is
+    T_a/2 + T_b/2 = 0.35, comfortably within the combined permitted radius
+    r_a + r_b = 0.25 + 0.25 = 0.50, so this ASSEMBLES.
+    margin = (8.5-8.0) + (8.5-8.0) - (0.6+0.1) = 1.0 - 0.7 = +0.3
+    """
     hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.6)
     hole_b = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
     verdict = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
-    assert verdict.assembles is False
+    assert verdict.assembles is True
+    assert verdict.margin == pytest.approx(0.3)
 
 
 def test_asymmetric_holes_worse_on_hole_b():
-    """Worse tolerance on hole_b (0.6 > allowable 0.5) must fail.
-    This test proves hole_b is actually considered, not ignored.
+    """Same as above with hole_a/hole_b's tolerances swapped. Floating pools
+    T_a and T_b symmetrically, so the verdict and margin are identical.
+    margin = (8.5-8.0) + (8.5-8.0) - (0.1+0.6) = 1.0 - 0.7 = +0.3
     """
     hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
     hole_b = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.6)
     verdict = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
-    assert verdict.assembles is False
+    assert verdict.assembles is True
+    assert verdict.margin == pytest.approx(0.3)
+
+
+def test_floating_fully_swap_invariant():
+    """Floating is symmetric under (H_a,T_a) <-> (H_b,T_b): swapping which
+    part is 'a' and which is 'b' must not change margin or verdict, even
+    when the holes differ in both size and position_tol.
+    """
+    hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.3)
+    hole_b = FeatureOfSize(8.6, 0.0, 0.2, INTERNAL, position_tol=0.4)
+    v1 = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
+    v2 = fastener_assembles(hole_b, hole_a, M8_BOLT, condition="floating")
+    assert v1.assembles == v2.assembles
+    assert v1.margin == pytest.approx(v2.margin)
+
+
+def test_fixed_symmetric_in_position_tol_swap_only():
+    """Fixed pools T_a and T_b as a sum, so swapping ONLY the tolerances
+    (while keeping H_a on hole_a and H_b on hole_b) leaves margin unchanged.
+
+    hole_a=8.5 (T=0.3), hole_b=8.6 (T=0.4):
+      margin = (8.5-8.0) - (0.3+0.4) = 0.5 - 0.7 = -0.2
+    hole_a=8.5 (T=0.4), hole_b=8.6 (T=0.3):
+      margin = (8.5-8.0) - (0.4+0.3) = 0.5 - 0.7 = -0.2  (same)
+    """
+    hole_a_1 = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.3)
+    hole_b_1 = FeatureOfSize(8.6, 0.0, 0.2, INTERNAL, position_tol=0.4)
+    hole_a_2 = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.4)
+    hole_b_2 = FeatureOfSize(8.6, 0.0, 0.2, INTERNAL, position_tol=0.3)
+
+    v1 = fastener_assembles(hole_a_1, hole_b_1, M8_BOLT, condition="fixed")
+    v2 = fastener_assembles(hole_a_2, hole_b_2, M8_BOLT, condition="fixed")
+    assert v1.margin == pytest.approx(v2.margin)
+    assert v1.margin == pytest.approx(-0.2)
+    assert v1.assembles == v2.assembles is False
+
+
+def test_fixed_not_swap_invariant_on_full_hole_swap():
+    """Fixed is NOT symmetric under a full (H_a,T_a) <-> (H_b,T_b) swap: the
+    size term only ever comes from hole_a, so fully swapping which part is
+    'a' and which is 'b' changes the margin. Never assert full
+    swap-invariance for fixed.
+
+    hole_a=8.5 (T=0.3), hole_b=8.6 (T=0.4): margin = 0.5 - 0.7 = -0.2
+    hole_a=8.6 (T=0.4), hole_b=8.5 (T=0.3): margin = 0.6 - 0.7 = -0.1
+    """
+    hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.3)
+    hole_b = FeatureOfSize(8.6, 0.0, 0.2, INTERNAL, position_tol=0.4)
+
+    v_original = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="fixed")
+    v_fully_swapped = fastener_assembles(hole_b, hole_a, M8_BOLT, condition="fixed")
+
+    assert v_original.margin == pytest.approx(-0.2)
+    assert v_fully_swapped.margin == pytest.approx(-0.1)
+    assert v_original.margin != pytest.approx(v_fully_swapped.margin)
 
 
 def test_unknown_condition_rejected():
@@ -115,14 +178,13 @@ def test_unknown_condition_rejected():
 
 
 def test_argument_order_does_not_change_verdict_for_asymmetric_hole_sizes():
-    """C1 regression: swapping hole_a/hole_b must not change the verdict when the
-    holes differ in SIZE (not just position_tol). The allowable tolerance must
-    always be computed from the smaller (governing) hole, regardless of which
-    argument position it is passed in.
+    """Floating pools both holes' clearance and both position tolerances, so
+    swapping hole_a/hole_b must not change the verdict when the holes differ
+    in SIZE (not just position_tol) either.
 
     Ø8.5 and Ø8.05 holes, both position_tol 0.3, through an M8 bolt (mmc 8.0):
-    the smaller (Ø8.05) hole governs, allowable = 8.05 - 8.0 = 0.05, so margin
-    = 0.05 - 0.3 = -0.25 and the joint does not assemble, regardless of order.
+    margin = (8.5-8.0) + (8.05-8.0) - (0.3+0.3) = 0.5 + 0.05 - 0.6 = -0.05
+    and the joint does not assemble, regardless of order.
     """
     big = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.3)
     tight = FeatureOfSize(8.05, 0.0, 0.2, INTERNAL, position_tol=0.3)
@@ -133,19 +195,82 @@ def test_argument_order_does_not_change_verdict_for_asymmetric_hole_sizes():
     assert v_big_first.assembles == v_tight_first.assembles
     assert v_big_first.assembles is False
     assert v_big_first.margin == pytest.approx(v_tight_first.margin)
-    assert v_big_first.margin == pytest.approx(-0.25)
+    assert v_big_first.margin == pytest.approx(-0.05)
 
-    # The governing (smaller) hole must be recorded regardless of argument order.
-    assert v_big_first.detail["governing_hole_mmc"] == pytest.approx(8.05)
-    assert v_tight_first.detail["governing_hole_mmc"] == pytest.approx(8.05)
+    # hole_a_mmc/hole_b_mmc must be recorded consistently regardless of
+    # argument order (governing_hole/governing_hole_mmc no longer exist --
+    # the pooled model has no single "governing" hole).
+    assert v_big_first.detail["hole_a_mmc"] == pytest.approx(8.5)
+    assert v_big_first.detail["hole_b_mmc"] == pytest.approx(8.05)
+    assert v_tight_first.detail["hole_a_mmc"] == pytest.approx(8.05)
+    assert v_tight_first.detail["hole_b_mmc"] == pytest.approx(8.5)
 
 
-def test_rejects_external_hole_b():
-    """hole_b must be validated as INTERNAL, not silently ignored."""
+def test_rejects_external_hole_b_when_floating():
+    """For 'floating', hole_b must be validated as INTERNAL: a floating
+    fastener needs a clearance hole in both parts, not silently ignored.
+    """
     hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
     external_hole = FeatureOfSize(8.0, -0.1, 0.0, EXTERNAL, position_tol=0.1)
     with pytest.raises(ValueError, match="hole_b"):
         fastener_assembles(hole_a, external_hole, M8_BOLT, condition="floating")
+
+
+def test_allows_external_hole_b_when_fixed():
+    """For 'fixed', hole_b is the fixed feature and may legitimately be a
+    press-fit pin (EXTERNAL), not just a tapped hole (INTERNAL): its MMC
+    never enters the fixed formula, so its feature_type is not restricted.
+    """
+    hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
+    press_fit_pin = FeatureOfSize(9.0, -0.1, 0.0, EXTERNAL, position_tol=0.1)
+    verdict = fastener_assembles(hole_a, press_fit_pin, M8_BOLT, condition="fixed")
+    # margin = (8.5-8.0) - (0.1+0.1) = 0.3
+    assert verdict.assembles is True
+    assert verdict.margin == pytest.approx(0.3)
+
+
+def test_floating_raises_when_hole_a_below_fastener_mmc():
+    """A hole the fastener must pass through cannot be smaller than the
+    fastener at MMC -- the permitted-axis disc would have negative radius.
+    H_a=7.9 < F=8.0 must raise, not silently produce a positive margin.
+    """
+    hole_a = FeatureOfSize(7.9, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    hole_b = FeatureOfSize(9.0, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    with pytest.raises(ValueError, match="hole_a"):
+        fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
+
+
+def test_floating_raises_when_hole_b_below_fastener_mmc():
+    """Same guard, mirrored: floating requires BOTH holes to admit the
+    fastener, so an undersized hole_b must also raise.
+    """
+    hole_a = FeatureOfSize(9.0, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    hole_b = FeatureOfSize(7.9, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    with pytest.raises(ValueError, match="hole_b"):
+        fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
+
+
+def test_fixed_raises_when_hole_a_below_fastener_mmc():
+    """Fixed still requires hole_a (the clearance hole) to admit the
+    fastener at MMC.
+    """
+    hole_a = FeatureOfSize(7.9, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    hole_b = FeatureOfSize(9.0, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    with pytest.raises(ValueError, match="hole_a"):
+        fastener_assembles(hole_a, hole_b, M8_BOLT, condition="fixed")
+
+
+def test_fixed_does_not_raise_when_hole_b_below_fastener_mmc():
+    """hole_b's MMC is irrelevant in the fixed case -- it is the fixed
+    feature (e.g. a tapped hole sized for the fastener's threads, not for
+    clearance), so an undersized hole_b must NOT raise. This is the exact
+    scenario from the spec: H_a=9.0, H_b=7.9, T=0, F=8.0 -> margin = 1.0.
+    """
+    hole_a = FeatureOfSize(9.0, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    hole_b = FeatureOfSize(7.9, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    verdict = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="fixed")
+    assert verdict.assembles is True
+    assert verdict.margin == pytest.approx(1.0)
 
 
 def test_no_bonus_at_mmc():
