@@ -40,6 +40,19 @@ _TOL_FRACTION_RANGE = {
 
 _TIER1_KINDS = ("floating_fastener", "fixed_fastener")
 
+# Monte Carlo seeds for iso_fit mates are derived from (assembly seed, mate
+# index) so they are reproducible from the spec alone. The offset keeps every
+# generated seed clear of 0, which is tolcad.checker's fallback: a spec that
+# lost its seed on the way through JSON is then visibly different from one that
+# legitimately drew seed 0.
+_MC_SEED_BASE = 10_000
+_MC_SAMPLES = 100_000
+
+
+def _mc_seed_for(seed: int, mate_index: int) -> int:
+    """Deterministic, collision-free Monte Carlo seed for one mate."""
+    return _MC_SEED_BASE + seed * MAX_DIFFICULTY + mate_index
+
 
 def _tier1_mate(rng: np.random.Generator, difficulty: int) -> MateSpec:
     fastener_mm = float(rng.choice(FASTENER_SIZES))
@@ -71,7 +84,7 @@ def _tier1_mate(rng: np.random.Generator, difficulty: int) -> MateSpec:
     )
 
 
-def _iso_fit_mate(rng: np.random.Generator) -> MateSpec:
+def _iso_fit_mate(rng: np.random.Generator, mc_seed: int) -> MateSpec:
     nominal = float(rng.choice((10.0, 12.0, 16.0, 20.0, 25.0)))
     designation = str(rng.choice(SUPPORTED_FITS))
     iso_fit_mate_features(nominal, designation)  # validates the pair
@@ -79,6 +92,7 @@ def _iso_fit_mate(rng: np.random.Generator) -> MateSpec:
         kind="iso_fit", nominal_mm=nominal, hole_a=None, hole_b=None,
         fastener=None, designation=designation,
         position_tol_a=0.0, position_tol_b=0.0,
+        mc_seed=mc_seed, mc_n=_MC_SAMPLES,
     )
 
 
@@ -91,8 +105,10 @@ def sample_assembly(seed: int, difficulty: int) -> AssemblySpec:
         )
     rng = np.random.default_rng(seed)
     mates = [
-        _iso_fit_mate(rng) if rng.random() < 0.25 else _tier1_mate(rng, difficulty)
-        for _ in range(difficulty)
+        _iso_fit_mate(rng, _mc_seed_for(seed, i))
+        if rng.random() < 0.25
+        else _tier1_mate(rng, difficulty)
+        for i in range(difficulty)
     ]
     # The plate is sized from the features it has to hold, not hardcoded, so a
     # change to the feature tables can never quietly outgrow it.

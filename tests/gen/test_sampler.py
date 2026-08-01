@@ -1,6 +1,6 @@
 import pytest
 from tolcad.checker import check
-from tolcad.gen.sampler import MAX_DIFFICULTY, sample_assembly
+from tolcad.gen.sampler import MAX_DIFFICULTY, _mc_seed_for, sample_assembly
 
 _GUARD_SEEDS = 80
 _DIFFICULTIES = tuple(range(1, MAX_DIFFICULTY + 1))
@@ -92,3 +92,31 @@ def test_seed_and_difficulty_are_recorded_in_the_spec():
     assert spec.seed == 13
     assert spec.difficulty == 3
 
+
+def test_iso_fit_mates_carry_an_explicit_reproducible_monte_carlo_seed():
+    """Tier 2 labels ride on the sampling seed, so the seed must be in the spec.
+
+    Without this the checker silently fell back to seed=0 and every H7/h6 mate
+    in the corpus took whichever label seed 0 happened to produce.
+    """
+    seen = 0
+    for seed in range(40):
+        for difficulty in _DIFFICULTIES:
+            spec = sample_assembly(seed, difficulty)
+            for index, mate in enumerate(spec.mates):
+                if mate.kind != "iso_fit":
+                    continue
+                seen += 1
+                assert mate.mc_seed == _mc_seed_for(seed, index)
+                assert mate.mc_seed != 0, "0 is the checker's fallback, not a choice"
+                assert mate.mc_n > 0
+                # The seed must reach the Monte Carlo, not just sit in the spec.
+                assert check(mate.to_check_dict()).detail["seed"] == mate.mc_seed
+    assert seen > 0, "no iso_fit mates sampled; this guard checked nothing"
+
+
+def test_monte_carlo_seeds_are_unique_within_an_assembly():
+    for seed in range(40):
+        spec = sample_assembly(seed, MAX_DIFFICULTY)
+        iso_seeds = [m.mc_seed for m in spec.mates if m.kind == "iso_fit"]
+        assert len(iso_seeds) == len(set(iso_seeds))

@@ -27,8 +27,19 @@ class MateSpec:
     designation: str | None
     position_tol_a: float
     position_tol_b: float
+    # Tier 2 (iso_fit) is a Monte Carlo estimate, so its verdict depends on the
+    # sampling seed. H7/h6 is line-to-line at MMC and genuinely flips label
+    # across seeds, so leaving the seed implicit made the published label an
+    # accident of tolcad.checker's fallback default. CLAUDE.md requires Tier 2
+    # to always report a seed; carrying it here is what puts it in the sidecar
+    # JSON a reproducer actually reads, not just in Verdict.detail.
+    # Defaults mirror tolcad.checker's fallbacks; the sampler always sets them.
+    mc_seed: int = 0
+    mc_n: int = 100_000
 
     def __post_init__(self) -> None:
+        if self.mc_n <= 0:
+            raise ValueError(f"mc_n must be positive, got {self.mc_n}")
         if self.kind not in VALID_KINDS:
             raise ValueError(
                 f"unknown mate kind {self.kind!r}; have {sorted(VALID_KINDS)}"
@@ -60,6 +71,9 @@ class MateSpec:
                 "type": "iso_fit",
                 "nominal": self.nominal_mm,
                 "designation": self.designation,
+                # Explicit, never inherited from the checker's fallback.
+                "seed": self.mc_seed,
+                "n": self.mc_n,
             }
 
         # For all Tier 1 mates, inject position_tol into the hole/fastener dicts.

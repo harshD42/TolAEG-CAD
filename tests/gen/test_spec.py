@@ -34,6 +34,51 @@ def test_iso_fit_mate_emits_a_checker_dict():
     assert check(d).margin == pytest.approx(1.0)  # clearance fit, full yield
 
 
+def test_iso_fit_check_dict_carries_the_monte_carlo_seed_and_sample_count():
+    """CLAUDE.md: Tier 2 always reports a seed. It has to be in the SIDECAR.
+
+    Omitting these let tolcad.checker fall back to seed=0 / n=100_000, so the
+    label of a line-to-line fit like H7/h6 -- which genuinely flips across
+    sampling seeds -- was decided by a default nobody wrote down.
+    """
+    mate = MateSpec(
+        kind="iso_fit", nominal_mm=20.0, hole_a=None, hole_b=None,
+        fastener=None, designation="H7/h6", position_tol_a=0.0, position_tol_b=0.0,
+        mc_seed=12345, mc_n=25_000,
+    )
+    d = mate.to_check_dict()
+    assert d["seed"] == 12345
+    assert d["n"] == 25_000
+    verdict = check(d)
+    assert verdict.detail["seed"] == 12345
+    assert verdict.detail["n"] == 25_000
+
+
+def test_monte_carlo_fields_survive_the_sidecar_round_trip():
+    mate = MateSpec(
+        kind="iso_fit", nominal_mm=16.0, hole_a=None, hole_b=None,
+        fastener=None, designation="H7/h6", position_tol_a=0.0, position_tol_b=0.0,
+        mc_seed=987, mc_n=50_000,
+    )
+    original = AssemblySpec(seed=1, difficulty=1, mates=[mate])
+    text = original.to_json()
+    assert '"mc_seed": 987' in text
+    assert '"mc_n": 50000' in text
+    restored = AssemblySpec.from_json(text)
+    assert restored == original
+    assert restored.mates[0].mc_seed == 987
+    assert restored.mates[0].mc_n == 50_000
+
+
+def test_non_positive_monte_carlo_sample_count_rejected():
+    with pytest.raises(ValueError, match="mc_n"):
+        MateSpec(
+            kind="iso_fit", nominal_mm=16.0, hole_a=None, hole_b=None,
+            fastener=None, designation="H7/h6", position_tol_a=0.0,
+            position_tol_b=0.0, mc_n=0,
+        )
+
+
 def test_assembly_spec_json_round_trip_is_lossless():
     original = AssemblySpec(
         seed=42, difficulty=2, mates=[_floating_mate()],
