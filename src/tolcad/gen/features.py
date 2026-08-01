@@ -31,7 +31,20 @@ _GRADE_INDEX = {"close": 0, "normal": 1, "loose": 2}
 # Hole tolerance applied to a generated clearance hole: H13-ish, +0.2/-0.0 mm.
 _HOLE_UPPER_DEV_MM = 0.2
 
-SUPPORTED_FITS: tuple[str, ...] = ("H7/g6", "H7/h6", "H7/k6", "H7/p6")
+# Hole-basis fits the generator samples. One clearance (g6), one transition
+# (k6), one interference (p6).
+#
+# H7/h6 WAS HERE AND WAS DELIBERATELY REMOVED. It is line-to-line: an H hole's
+# lower deviation is zero and an h shaft's upper deviation is zero, so hole
+# minimum and shaft maximum are both exactly the nominal and the exact
+# worst-case clearance is 0. tolcad.montecarlo scores `assembles` as
+# `yield >= 1.0` against a strict `clearance > 0`, so the label came down to
+# whether any of 100,000 samples landed exactly on the boundary: 85 True /
+# 23 False across the corpus, margin only ever 1.0 or 0.99999. That is
+# sampling noise wearing a ground-truth label, and it would have surfaced as
+# irreducible, unexplainable model-vs-checker disagreement. Removed before
+# pre-registration rather than after.
+SUPPORTED_FITS: tuple[str, ...] = ("H7/g6", "H7/k6", "H7/p6")
 
 
 def clearance_hole_for(fastener_mm: float, grade: str) -> dict:
