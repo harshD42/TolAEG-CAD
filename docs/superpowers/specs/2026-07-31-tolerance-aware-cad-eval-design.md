@@ -184,6 +184,13 @@ The boxes are not networked; ablations are embarrassingly parallel, results sync
 ## 7. Success criteria (pre-registered)
 
 **These thresholds are fixed before any experiment runs and must not be revised afterward.**
+
+*Correction log (pre-data).* 2026-07-31: the Gate A convergence sample count was raised from
+N=10k to N=100k during plan review. At N=10k the binomial standard error for a transition fit
+(p≈0.6) is ≈0.0049, so the expected range across 5 seeds is ≈0.011 — the ±0.5% threshold was
+unachievable by correct code. N=100k gives SE≈0.0016 and expected range ≈0.0036. The
+*threshold* is unchanged; only the sample count was corrected. Recorded here because it
+predates any experimental data; no post-data threshold change is permitted.
 Revising a threshold after seeing data invalidates the result. If a threshold turns out to be
 badly chosen, that is recorded as a deviation in the paper, not silently changed.
 
@@ -195,7 +202,7 @@ Project does not proceed past Phase 2 unless all pass:
 |---|---|
 | Agreement with published Y14.5 worked examples (Tier 1) | **100%** — closed-form, must be exact |
 | Verdict agreement with TolAnalyst, ≥500 Tier 2 assemblies | **≥ 95%**, all disagreements root-caused |
-| Monte Carlo convergence: yield estimate stability at N=10k | **± 0.5%** across 5 seeds |
+| Monte Carlo convergence: yield estimate stability at N=100k | **± 0.5%** range across 5 seeds |
 | Import-lint: no core module imports `validation/` | **Pass** |
 | Fresh clone, no SW license, full pipeline | **Runs end-to-end** |
 
