@@ -242,9 +242,72 @@ def test_all_39_it12_to_it14_cells_match_iso286_table_1(band_index, probe_mm):
         expected_mm = table[band_index]
         assert it_grade(probe_mm, grade) == pytest.approx(expected_mm), (
             f"IT{grade} at size band index {band_index} "
-            f"(_SIZE_BANDS upper bound, probe {probe_mm} mm): "
-            f"expected {expected_mm} mm, got {it_grade(probe_mm, grade)} mm"
+            f"(index into _SIZE_BANDS; probed at {probe_mm} mm, strictly inside "
+            f"the band): expected {expected_mm} mm, got {it_grade(probe_mm, grade)} mm"
         )
+
+
+# ISO 286-1:2010 Table 1, published in MICROMETRES for IT01-IT11 -- the other
+# side of the unit split documented on _IT_MICRONS. Transcribed here from the
+# primary-source scan independently of src/, so this is a second reading rather
+# than a restatement of the module's own values.
+#
+# WHY THESE ARE PINNED TOO. The 39 IT12-IT14 cells above were pinned because the
+# controller's verification of them had been a one-off shell run -- "ephemeral
+# evidence is not a guard". Exactly the same was true of these 52: they were
+# checked against primary tables on 2026-08-01 and that check lived only in a
+# ledger sentence, with the suite spot-checking a handful of bands. IT7 in
+# particular feeds the Tier 2 iso_fit yields through fit_from_designation, so a
+# corrupted cell here would move published numbers, not just documentation.
+_IT5_TABLE_UM = [4, 5, 6, 8, 9, 11, 13, 15, 18, 20, 23, 25, 27]
+_IT6_TABLE_UM = [6, 8, 9, 11, 13, 16, 19, 22, 25, 29, 32, 36, 40]
+_IT7_TABLE_UM = [10, 12, 15, 18, 21, 25, 30, 35, 40, 46, 52, 57, 63]
+_IT8_TABLE_UM = [14, 18, 22, 27, 33, 39, 46, 54, 63, 72, 81, 89, 97]
+
+
+@pytest.mark.parametrize("band_index, probe_mm", list(enumerate(_SIZE_BAND_PROBES_MM)))
+def test_all_52_it5_to_it8_cells_match_iso286_table_1(band_index, probe_mm):
+    """The older grades get the same treatment the new ones got.
+
+    it_grade returns MILLIMETRES, so the micrometre figures above are divided by
+    1000 here -- the same boundary conversion _IT_MICRONS performs, asserted from
+    the outside.
+    """
+    for grade, table in (
+        (5, _IT5_TABLE_UM), (6, _IT6_TABLE_UM),
+        (7, _IT7_TABLE_UM), (8, _IT8_TABLE_UM),
+    ):
+        expected_mm = table[band_index] / 1000.0
+        assert it_grade(probe_mm, grade) == pytest.approx(expected_mm), (
+            f"IT{grade} at size band index {band_index} "
+            f"(index into _SIZE_BANDS; probed at {probe_mm} mm, strictly inside "
+            f"the band): expected {expected_mm} mm "
+            f"({table[band_index]} um), got {it_grade(probe_mm, grade)} mm"
+        )
+
+
+def test_the_tabulated_grade_set_is_declared_not_emergent():
+    """Which IT grades exist is a decision; make it one a diff has to show.
+
+    fit_from_designation accepts any grade present in _IT_MICRONS for the
+    unrestricted shaft letters g/h/p. That set is emergent from this dict's
+    contents, so adding a grade for an unrelated reason silently widens a
+    checker-core public API -- which is exactly what happened when IT12-IT14
+    were added for the ISO 273 clearance-hole work: H12/g12, H13/h13 and
+    H14/p14 went from raising to accepted, undocumented and untested.
+
+    The rejection probe elsewhere in this file catches IT9 specifically. This
+    catches the general case: any addition or removal fails here, so widening
+    the accepted designation set becomes a deliberate, reviewable edit.
+    """
+    from tolcad.iso286 import _IT_MICRONS
+
+    assert sorted(_IT_MICRONS) == [5, 6, 7, 8, 12, 13, 14], (
+        "the tabulated IT grade set changed. If that is intended, update this "
+        "list AND the g/h/p parentheticals in iso286.py's docstring, and add a "
+        "designation test for the new grade -- fit_from_designation's accepted "
+        "input set moves with this dict."
+    )
 
 
 # --- The accepted designation set, pinned in both directions (I-2 fix round) ---
