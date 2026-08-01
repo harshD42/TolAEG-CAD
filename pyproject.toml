@@ -16,7 +16,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 addopts = "--strict-markers"
 markers = [
     "slow: Monte Carlo convergence checks (deselect with -m 'not slow')",
