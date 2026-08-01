@@ -181,3 +181,76 @@ def test_unknown_fastener_size_rejected_by_tapped_hole():
     from tolcad.gen.features import tapped_hole_for
     with pytest.raises(ValueError, match="fastener"):
         tapped_hole_for(7.0)
+
+
+def test_each_series_carries_its_iso273_tolerance_grade():
+    """ISO 273-1979 Table 1 note: fine H12, medium H13, coarse H14."""
+    from tolcad.gen.features import SERIES_TOLERANCE_GRADE
+    assert SERIES_TOLERANCE_GRADE == {"close": 12, "normal": 13, "loose": 14}
+
+
+@pytest.mark.parametrize("fastener_mm, grade, expected_upper_dev", [
+    # upper_dev == IT at the HOLE diameter (H holes have lower deviation 0).
+    # ISO 286-1:2010 Table 1, converted to mm.
+    (3.0, "close", 0.12),    # Ø3.2  -> IT12 in >3-6
+    (3.0, "loose", 0.30),    # Ø3.6  -> IT14 in >3-6
+    (8.0, "close", 0.15),    # Ø8.4  -> IT12 in >6-10
+    (8.0, "normal", 0.22),   # Ø9.0  -> IT13 in >6-10
+    (8.0, "loose", 0.36),    # Ø10.0 -> IT14 in >6-10
+    (12.0, "loose", 0.43),   # Ø14.5 -> IT14 in >10-18
+])
+def test_clearance_hole_upper_dev_comes_from_the_series_grade(
+    fastener_mm, grade, expected_upper_dev
+):
+    hole = clearance_hole_for(fastener_mm, grade)
+    assert hole["upper_dev"] == pytest.approx(expected_upper_dev)
+    assert hole["lower_dev"] == 0.0
+
+
+def test_clearance_hole_tolerance_is_no_longer_flat():
+    """The old code applied +0.2 to every hole at every size.
+
+    A regression to a constant would make the schema untraceable again, and
+    every other test here would still pass, so assert the variation directly.
+    """
+    devs = {
+        clearance_hole_for(f, g)["upper_dev"]
+        for f in FASTENER_SIZES
+        for g in ("close", "normal", "loose")
+    }
+    assert len(devs) > 1, f"tolerance is constant across all holes: {devs}"
+
+
+def test_tolerance_widens_with_series_at_a_fixed_fastener():
+    """H12 < H13 < H14, and the hole diameter grows too, so this is monotone."""
+    for f in FASTENER_SIZES:
+        close = clearance_hole_for(f, "close")["upper_dev"]
+        normal = clearance_hole_for(f, "normal")["upper_dev"]
+        loose = clearance_hole_for(f, "loose")["upper_dev"]
+        assert close < normal < loose, f"M{f}: {close}, {normal}, {loose}"
+
+
+def test_hole_mmc_is_unaffected_by_the_tolerance_change():
+    """Guards the claim that this cannot move a Tier 1 verdict.
+
+    MMC is nominal + lower_dev and lower_dev is 0, so MMC equals the nominal
+    diameter regardless of the grade. If this ever fails, the difficulty ladder
+    has moved and the pre-registered numbers are invalid.
+    """
+    for f in FASTENER_SIZES:
+        for g in ("close", "normal", "loose"):
+            hole = clearance_hole_for(f, g)
+            assert hole["nominal"] + hole["lower_dev"] == hole["nominal"]
+
+
+def test_features_module_cites_its_primary_sources():
+    """The provenance caveat is gone, so the citation must actually be there."""
+    import pathlib
+    import tolcad.gen.features as mod
+    text = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+    assert "ISO 273" in text
+    assert "ISO 2306" in text
+    assert "not been checked against the primary" not in text, (
+        "the caveat was removed only because the check was done; do not "
+        "reinstate it without also removing the citations"
+    )
