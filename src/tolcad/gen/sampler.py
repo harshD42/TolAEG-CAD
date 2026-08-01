@@ -13,6 +13,7 @@ import numpy as np
 from tolcad.gen.features import (
     FASTENER_SIZES, SUPPORTED_FITS, clearance_hole_for, iso_fit_mate_features,
 )
+from tolcad.gen.layout import plate_size_for_mates
 from tolcad.gen.spec import AssemblySpec, MateSpec
 
 MAX_DIFFICULTY = 4
@@ -82,4 +83,11 @@ def sample_assembly(seed: int, difficulty: int) -> AssemblySpec:
         _iso_fit_mate(rng) if rng.random() < 0.25 else _tier1_mate(rng, difficulty)
         for _ in range(difficulty)
     ]
-    return AssemblySpec(seed=seed, difficulty=difficulty, mates=mates)
+    # The plate is sized from the features it has to hold, not hardcoded, so a
+    # change to the feature tables can never quietly outgrow it.
+    return AssemblySpec(
+        seed=seed,
+        difficulty=difficulty,
+        mates=mates,
+        plate_size_mm=plate_size_for_mates(mates),
+    )
