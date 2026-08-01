@@ -40,3 +40,64 @@ def vc_assembles(pin: FeatureOfSize, hole: FeatureOfSize) -> Verdict:
         method="virtual_condition",
         detail={"vc_pin": vc_pin, "vc_hole": vc_hole},
     )
+
+
+def _check_fastener_pair(hole: FeatureOfSize, fastener: FeatureOfSize) -> None:
+    if hole.feature_type is not FeatureType.INTERNAL:
+        raise ValueError("hole must be an internal feature")
+    if fastener.feature_type is not FeatureType.EXTERNAL:
+        raise ValueError("fastener must be an external feature")
+
+
+def floating_fastener_tolerance(
+    hole: FeatureOfSize, fastener: FeatureOfSize
+) -> float:
+    """Position tolerance available to each part, floating fastener condition.
+
+    T = H - F, where H is hole MMC and F is fastener MMC.
+    Source: ASME Y14.5 floating fastener formula. CITATION PENDING HUMAN VERIFICATION.
+    """
+    _check_fastener_pair(hole, fastener)
+    return hole.mmc - fastener.mmc
+
+
+def fixed_fastener_tolerance(hole: FeatureOfSize, fastener: FeatureOfSize) -> float:
+    """Position tolerance available to each part, fixed fastener condition.
+
+    T = (H - F) / 2. The available clearance is split between the two parts
+    because the fastener cannot shift in the part that constrains it.
+    Assumes a projected tolerance zone.
+    Source: ASME Y14.5 fixed fastener formula. CITATION PENDING HUMAN VERIFICATION.
+    """
+    _check_fastener_pair(hole, fastener)
+    return (hole.mmc - fastener.mmc) / 2.0
+
+
+def fastener_assembles(
+    hole_a: FeatureOfSize,
+    hole_b: FeatureOfSize,
+    fastener: FeatureOfSize,
+    condition: str,
+) -> Verdict:
+    """Check a two-part fastened joint against the Y14.5 allowable tolerance."""
+    if condition == "floating":
+        allowable = floating_fastener_tolerance(hole_a, fastener)
+    elif condition == "fixed":
+        allowable = fixed_fastener_tolerance(hole_a, fastener)
+    else:
+        raise ValueError(f"condition must be 'floating' or 'fixed', got {condition!r}")
+
+    worst = max(hole_a.position_tol, hole_b.position_tol)
+    margin = allowable - worst
+
+    return Verdict(
+        assembles=margin >= -EPS,
+        margin=margin,
+        method=f"{condition}_fastener",
+        detail={
+            "allowable_tol": allowable,
+            "worst_applied_tol": worst,
+            "hole_mmc": hole_a.mmc,
+            "fastener_mmc": fastener.mmc,
+        },
+    )
