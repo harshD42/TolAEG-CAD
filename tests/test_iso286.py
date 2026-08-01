@@ -214,3 +214,34 @@ def test_existing_grades_are_untouched():
     assert it_grade(4.0, 5) == pytest.approx(0.005)
     assert it_grade(4.0, 8) == pytest.approx(0.018)
     assert it_grade(14.0, 7) == pytest.approx(0.018)
+
+
+# --- All 39 IT12-IT14 cells, pinned individually (F-2 fix round) --------------
+#
+# The controller hand-verified all 39 cells (3 grades x 13 bands) against the
+# primary-source scan once, as a one-off shell run. That verification was never
+# encoded in the suite: only 3 of 13 bands had a per-value check, ordering
+# covered 5 of 13, and the length check catches truncation but not a
+# same-length transposition of two adjacent bands within a row. Eight of
+# thirteen bands had zero correctness coverage for grades 12-14. This pins all
+# 39 values directly, indexed parallel to _SIZE_BANDS, so a future edit that
+# corrupts any single cell -- including a transposition -- fails here.
+
+_SIZE_BAND_PROBES_MM = [2, 4, 8, 14, 25, 40, 65, 100, 150, 200, 300, 350, 450]
+
+# ISO 286-1:2010 Table 1, published in MILLIMETRES for IT12-IT18. Indexed
+# parallel to _SIZE_BANDS / _SIZE_BAND_PROBES_MM.
+_IT12_TABLE_MM = [0.10, 0.12, 0.15, 0.18, 0.21, 0.25, 0.30, 0.35, 0.40, 0.46, 0.52, 0.57, 0.63]
+_IT13_TABLE_MM = [0.14, 0.18, 0.22, 0.27, 0.33, 0.39, 0.46, 0.54, 0.63, 0.72, 0.81, 0.89, 0.97]
+_IT14_TABLE_MM = [0.25, 0.30, 0.36, 0.43, 0.52, 0.62, 0.74, 0.87, 1.00, 1.15, 1.30, 1.40, 1.55]
+
+
+@pytest.mark.parametrize("band_index, probe_mm", list(enumerate(_SIZE_BAND_PROBES_MM)))
+def test_all_39_it12_to_it14_cells_match_iso286_table_1(band_index, probe_mm):
+    for grade, table in ((12, _IT12_TABLE_MM), (13, _IT13_TABLE_MM), (14, _IT14_TABLE_MM)):
+        expected_mm = table[band_index]
+        assert it_grade(probe_mm, grade) == pytest.approx(expected_mm), (
+            f"IT{grade} at size band index {band_index} "
+            f"(_SIZE_BANDS upper bound, probe {probe_mm} mm): "
+            f"expected {expected_mm} mm, got {it_grade(probe_mm, grade)} mm"
+        )
