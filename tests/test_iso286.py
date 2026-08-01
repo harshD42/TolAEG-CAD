@@ -264,6 +264,14 @@ _IT6_TABLE_UM = [6, 8, 9, 11, 13, 16, 19, 22, 25, 29, 32, 36, 40]
 _IT7_TABLE_UM = [10, 12, 15, 18, 21, 25, 30, 35, 40, 46, 52, 57, 63]
 _IT8_TABLE_UM = [14, 18, 22, 27, 33, 39, 46, 54, 63, 72, 81, 89, 97]
 
+# ISO 286-1 Tables 4/5 fundamental deviations, micrometres, indexed parallel
+# to _SIZE_BANDS / _SIZE_BAND_PROBES_MM. Transcribed independently of src/ (a
+# second reading), matching iso286.py's own _DEVIATION_MICRONS exactly as
+# verified on 2026-08-01 (see that module's docstring).
+_G_DEVIATION_UM = [-2, -4, -5, -6, -7, -9, -10, -12, -14, -15, -17, -18, -20]
+_K_DEVIATION_UM = [0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4, 5]
+_P_DEVIATION_UM = [6, 12, 15, 18, 22, 26, 32, 37, 43, 50, 56, 62, 68]
+
 
 @pytest.mark.parametrize("band_index, probe_mm", list(enumerate(_SIZE_BAND_PROBES_MM)))
 def test_all_52_it5_to_it8_cells_match_iso286_table_1(band_index, probe_mm):
@@ -352,3 +360,166 @@ def test_k_is_still_restricted_to_it4_through_it7_after_the_widening():
     for designation in ("H12/k12", "H13/k13", "H14/k14"):
         with pytest.raises(ValueError, match="only tabulated for"):
             fit_from_designation(20.0, designation)
+
+
+# --- Mutation-score triage additions (cosmic-ray, 2026-08-01) -----------------
+#
+# iso286.py's survivor count (169 of 515) was by far the largest of the six
+# core modules. The overwhelming majority were individual NumberReplacer /
+# unary-operator mutations on single cells of _DEVIATION_MICRONS ("g", "k",
+# "p" -- "H" and "h" are already all-zero so a single-cell change there is
+# covered by the length check below), because only a handful of 20mm spot
+# values were pinned per letter. The IT_MICRONS table already gets this
+# exhaustive treatment two sections up; the deviation table did not.
+
+
+@pytest.mark.parametrize("band_index, probe_mm", list(enumerate(_SIZE_BAND_PROBES_MM)))
+def test_all_deviation_letters_match_iso286_tables_4_and_5(band_index, probe_mm):
+    """Every cell of _DEVIATION_MICRONS for every tabulated letter, indexed
+    parallel to _SIZE_BANDS / _SIZE_BAND_PROBES_MM (same probes used for the
+    IT_MICRONS exhaustive check above). A single wrong or perturbed cell
+    fails here regardless of which band it lives in.
+    """
+    assert fundamental_deviation(probe_mm, "H") == pytest.approx(0.0)
+    assert fundamental_deviation(probe_mm, "h") == pytest.approx(0.0)
+    assert fundamental_deviation(probe_mm, "g") == pytest.approx(
+        _G_DEVIATION_UM[band_index] / 1000.0
+    )
+    assert fundamental_deviation(probe_mm, "k") == pytest.approx(
+        _K_DEVIATION_UM[band_index] / 1000.0
+    )
+    assert fundamental_deviation(probe_mm, "p") == pytest.approx(
+        _P_DEVIATION_UM[band_index] / 1000.0
+    )
+
+
+def test_deviation_tables_span_every_size_band():
+    """A row one element short or long would silently misalign against
+    _SIZE_BANDS (short: IndexError on the last band; long: an unreachable
+    extra element that a per-cell value check alone would never touch).
+    """
+    from tolcad.iso286 import _DEVIATION_MICRONS, _SIZE_BANDS
+    for letter in ("H", "g", "h", "k", "p"):
+        assert len(_DEVIATION_MICRONS[letter]) == len(_SIZE_BANDS)
+
+
+def test_size_bands_match_iso286_table_1_exactly():
+    """Pins every _SIZE_BANDS boundary directly; existing tests only probe
+    a few boundaries individually (10, 18, 30...), leaving most of the 13
+    values free to drift under a NumberReplacer mutant.
+    """
+    from tolcad.iso286 import _SIZE_BANDS
+    assert _SIZE_BANDS == [3, 6, 10, 18, 30, 50, 80, 120, 180, 250, 315, 400, 500]
+
+
+@pytest.mark.parametrize("designation", ["G7/g6", "P7/p6"])
+def test_non_hole_basis_designation_rejected_on_both_sides_of_h(designation):
+    """'G' sorts before 'H' and 'P' sorts after it lexically, so together
+    they catch both `<` and `>` substitutes for `hole_letter != "H"` (each
+    of which would only reject one of the two directions and silently
+    accept a fabricated hole letter on the other side).
+    """
+    with pytest.raises(ValueError, match="hole-basis"):
+        fit_from_designation(20.0, designation)
+
+
+@pytest.mark.parametrize("nominal_mm", [-0.5, 0.0])
+def test_nonpositive_nominal_size_rejected(nominal_mm):
+    """No existing test probes the LOWER end of the supported range (only
+    test_unsupported_size_rejected, which is too large). Covers zero and
+    negative in one parametrization.
+    """
+    with pytest.raises(ValueError, match="outside supported range"):
+        it_grade(nominal_mm, 7)
+
+
+def test_smallest_positive_nominal_size_is_accepted():
+    """0.5 mm sits strictly inside the first band (0, 3]; must not raise."""
+    assert it_grade(0.5, 7) == pytest.approx(0.010)
+
+
+def test_largest_supported_nominal_size_is_inclusive():
+    """_SIZE_BANDS[-1] = 500 is the inclusive upper bound (`<=`, not `<`)."""
+    assert it_grade(500.0, 7) == pytest.approx(0.063)
+
+
+def test_just_above_largest_supported_size_is_still_rejected():
+    with pytest.raises(ValueError, match="outside supported range"):
+        it_grade(500.0001, 7)
+
+
+def test_out_of_range_message_names_the_actual_upper_bound():
+    """Pins the exact number embedded in the error message. An off-by-one
+    (or otherwise wrong) index into _SIZE_BANDS used only for the message
+    text would silently cite a different bound while still raising --
+    invisible to a bare `pytest.raises(ValueError)`.
+    """
+    with pytest.raises(ValueError, match=r"\(0, 500\]"):
+        it_grade(900.0, 7)
+
+
+def test_k_grade_lower_boundary_4_is_not_rejected_by_the_range_guard():
+    """Grade 4 is the lower edge of k's accepted 4-7 range and must NOT be
+    rejected by `_SHAFT_LETTER_GRADE_RANGE`'s guard. It happens not to be
+    an IT_MICRONS grade at all (only 5,6,7,8,12,13,14 are tabulated), so
+    "H7/k4" still raises -- but from it_grade's "not tabulated" check,
+    which runs AFTER the range guard. A range-guard mutant that narrows the
+    lower bound above 4 would raise its OWN "only tabulated for" message
+    instead, which this distinguishes precisely.
+    """
+    with pytest.raises(ValueError, match="IT grade 4 not tabulated"):
+        fit_from_designation(20.0, "H7/k4")
+
+
+def test_k_grade_upper_boundary_7_is_accepted():
+    """Pins the exact upper edge -- test_h7k8_rejects_unsupported_k_grade
+    only shows grade 8 is rejected, which does not by itself establish that
+    7 (not 6) is the last accepted grade.
+    """
+    hole, shaft = fit_from_designation(20.0, "H7/k7")
+    assert shaft.min_size < shaft.max_size
+
+
+def test_k_grade_3_just_below_the_lower_boundary_is_rejected():
+    with pytest.raises(ValueError, match="only tabulated for"):
+        fit_from_designation(20.0, "H7/k3")
+
+
+def test_malformed_designation_with_empty_shaft_grade_rejected():
+    """Exercises the ValueError side of _parse's except tuple (int("") on
+    an empty grade string) -- test_malformed_designation_rejected only
+    exercises the missing-slash path, which never reaches this except at
+    all.
+    """
+    with pytest.raises(ValueError, match="malformed designation"):
+        fit_from_designation(20.0, "H7/g")
+
+
+def test_malformed_designation_with_empty_hole_part_rejected():
+    """Exercises the IndexError side of _parse's except tuple
+    (hole_part[0] on an empty string)."""
+    with pytest.raises(ValueError, match="malformed designation"):
+        fit_from_designation(20.0, "/g6")
+
+
+def test_designation_with_a_second_slash_is_malformed_not_a_wider_split():
+    """`designation.split("/", 1)` must stop after the first slash, so a
+    second "/" lands inside shaft_part and fails there with the wrapped
+    "malformed designation" message -- not an unrelated unpacking error
+    from splitting into three pieces.
+    """
+    with pytest.raises(ValueError, match="malformed designation"):
+        fit_from_designation(20.0, "H7/g6/extra")
+
+
+# --- Equivalent mutant (documented, not killed) -------------------------------
+#
+# `if hole_letter is not "H":` in place of `if hole_letter != "H":`.
+# hole_letter is always a single character (hole_part[0] from _parse).
+# CPython caches every single-character Latin-1 string as a process-wide
+# singleton, so for any single character, `is`/`is not` against another
+# single-character string is guaranteed to agree with `==`/`!=` -- there is
+# no single-character value for which they could disagree. (This is a
+# stronger guarantee than the general string-literal-interning argument used
+# elsewhere in this suite: it holds for computed single characters too, not
+# just source-literal ones.)

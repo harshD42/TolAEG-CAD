@@ -14,3 +14,8 @@ papers/literature/*.pdf
 
 # NIST PMI conformance suite: ~14MB, reproducible via scripts/fetch_nist_pmi.py
 data/nist_pmi/
+
+# Suite-integrity artifacts: regenerable, not tracked.
+.coverage
+htmlcov/
+*.sqlite

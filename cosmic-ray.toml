@@ -1,0 +1,42 @@
+# Layer 2 of the suite-integrity gate. See
+# docs/superpowers/specs/2026-08-01-suite-integrity-design.md
+#
+# module-path is set per-run by scripts/check_suite_integrity.py, which iterates
+# the six core modules -- cosmic-ray takes one module path per session.
+#
+# THE TEST COMMAND MUST BE THE WHOLE CORE SUBSET. Spiked 2026-08-01: scoping it
+# to the single matching test file gave 12 survivors of 66 on types.py (18.2%),
+# against 5 of 66 (7.58%) for the full subset, because checker.py and y14_5.py
+# tests exercise types.py heavily. A per-file command measures nothing useful.
+#
+# *** CONCURRENCY HAZARD -- DO NOT RUN ALONGSIDE ANYTHING ELSE. ***
+# cosmic-ray mutates the target module IN PLACE on disk (it patches the file,
+# shells out to the test command, then restores the original), one mutant at
+# a time, for the duration of `cosmic-ray exec`. On all THREE normal exits
+# observed during this layer's development (three full runs; see
+# task-4-report.md section 3 for what each one measured), the restore was
+# clean and byte-exact --
+# `git diff src/` came back empty and independently-diffed files (iso286.py,
+# y14_5.py) matched HEAD exactly. The hazard is specifically ABNORMAL
+# termination (killing the process, a crash mid-mutant), which can leave a
+# checker-core file sitting on disk with a live mutant applied. A concurrent
+# reader (another agent, a second test run, a code-review pass) can also
+# observe a live mutant mid-run even on a normal exit, simply because the
+# file is genuinely mutated for the seconds that mutant's test command is
+# executing -- this already happened once during this layer's own
+# development. Do not run this exec concurrently with anything else that
+# reads src/tolcad/.
+#
+# RECOVERY: `git status --short` -- if a checker-core file under src/tolcad/
+# shows as modified with no corresponding intentional edit, it is a leftover
+# mutant. `git checkout -- src/` restores it from HEAD (discards ALL
+# uncommitted changes under src/, so check `git status` first if you have
+# real unstaged source edits to preserve).
+[cosmic-ray]
+module-path = "src/tolcad/types.py"
+timeout = 30.0
+excluded-modules = []
+test-command = "python -m pytest tests/test_types.py tests/test_y14_5.py tests/test_iso286.py tests/test_montecarlo.py tests/test_checker.py tests/test_reliability.py -x -q --no-header -p no:cacheprovider -m 'not slow'"
+
+[cosmic-ray.distributor]
+name = "local"

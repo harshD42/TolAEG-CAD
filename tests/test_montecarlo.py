@@ -63,3 +63,170 @@ def test_seed_is_recorded_in_detail():
     verdict = clearance_yield(hole, shaft, n=1_000, seed=99)
     assert verdict.detail["seed"] == 99
     assert verdict.detail["n"] == 1_000
+
+
+# --- Mutation-score triage additions (cosmic-ray, 2026-08-01) -----------------
+#
+# The existing tests check the "uniform" branch's exact mean/std (diagnostic
+# for the formula) but only check the "normal" branch's clipped min/max
+# range -- which every mid/sigma formula satisfies trivially post-clip. And
+# nothing exercises a zero-width tolerance band, an unknown `distribution`
+# value, or clearance_yield's own zero-clearance boundary.
+
+
+def test_normal_distribution_matches_the_documented_mid_and_sigma():
+    """The normal branch places +/-3 sigma at the tolerance limits:
+    mid=(lo+hi)/2, sigma=(hi-lo)/6. A min/max-only check (everything clips
+    into range regardless of mid/sigma) cannot distinguish the correct
+    formula from a folded/multiplied/divided/off-by-one-denominator mutant;
+    mean and std can.
+    """
+    hole = FeatureOfSize(20.0, 0.0, 0.021, FeatureType.INTERNAL)
+    rng = np.random.default_rng(42)
+    samples = sample_size(hole, rng, n=20_000, distribution="normal")
+    assert samples.mean() == pytest.approx(20.0105, abs=1e-3)
+    assert samples.std() == pytest.approx(0.00351, abs=2e-4)
+
+
+def test_zero_width_tolerance_returns_the_constant_nominal():
+    """hi == lo (a basic, untoleranced dimension) is a legitimate case --
+    see the analogous finding in test_types.py. sample_size must return the
+    constant value, not divide by a zero-width sigma.
+    """
+    basic = FeatureOfSize(10.0, 0.0, 0.0, FeatureType.INTERNAL)
+    rng = np.random.default_rng(0)
+    samples = sample_size(basic, rng, n=100, distribution="normal")
+    assert np.all(samples == 10.0)
+
+
+def test_zero_width_tolerance_does_not_consume_rng_state():
+    """The `sigma == 0.0` shortcut returns np.full(n, mid) without drawing
+    from rng. numpy's Generator.normal(scale=0) is ALSO deterministic and
+    returns the same constant values, so a mutant that fails to take the
+    shortcut is invisible to a values-only check -- it only shows up as
+    unwanted rng-state consumption, observed here via a later draw that
+    would otherwise be reproducible.
+    """
+    basic = FeatureOfSize(10.0, 0.0, 0.0, FeatureType.INTERNAL)
+    toleranced = FeatureOfSize(20.0, 0.0, 0.021, FeatureType.INTERNAL)
+
+    rng_a = np.random.default_rng(123)
+    sample_size(basic, rng_a, n=50, distribution="normal")  # must not draw
+    result_a = sample_size(toleranced, rng_a, n=50, distribution="normal")
+
+    rng_b = np.random.default_rng(123)
+    result_b = sample_size(toleranced, rng_b, n=50, distribution="normal")
+
+    assert np.array_equal(result_a, result_b)
+
+
+def test_unknown_distribution_before_both_names_lexically_is_rejected():
+    """'bogus' sorts before both 'normal' and 'uniform' lexically, so a `<=`
+    substitute for either `==` comparison would incorrectly dispatch it
+    instead of raising.
+    """
+    hole = FeatureOfSize(20.0, 0.0, 0.021, FeatureType.INTERNAL)
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError, match="distribution must be"):
+        sample_size(hole, rng, n=10, distribution="bogus")
+
+
+def test_unknown_distribution_after_both_names_lexically_is_rejected():
+    """'zzz' sorts after both 'normal' and 'uniform' lexically, so a `>=`
+    substitute for either `==` comparison would incorrectly dispatch it
+    instead of raising.
+    """
+    hole = FeatureOfSize(20.0, 0.0, 0.021, FeatureType.INTERNAL)
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError, match="distribution must be"):
+        sample_size(hole, rng, n=10, distribution="zzz")
+
+
+def _uninterned(text: str) -> str:
+    """A string equal to `text` but guaranteed NOT to be the interned literal.
+
+    `"".join([text])` does NOT do this, though an earlier version of these
+    tests assumed it did: CPython's str.join has a single-element fast path
+    that returns the item itself, so the result IS the interned literal and an
+    `is` mutant sails through. Splitting into two pieces forces a real
+    concatenation into a fresh object. The asserts make this helper fail loudly
+    if CPython ever changes, rather than silently going back to being a no-op.
+    """
+    assert len(text) >= 2
+    built = "".join([text[:1], text[1:]])
+    assert built == text and built is not text, (
+        "the interning-defeat helper has stopped defeating interning"
+    )
+    return built
+
+
+def test_uniform_matched_by_equality_not_identity():
+    """Guards against `==` degrading to `is`; CPython interns identifier-
+    shaped literals, so a literal "uniform" here shares identity with the
+    literal in montecarlo.py and would satisfy an `is` mutant.
+
+    This test previously used `"".join(["uniform"])`, which returns the
+    interned literal unchanged -- so it did NOT kill the `distribution is
+    "uniform"` mutant, despite the triage recording it as killed. Verified:
+    the whole core subset stayed green under that mutant.
+    """
+    hole = FeatureOfSize(20.0, 0.0, 0.021, FeatureType.INTERNAL)
+    rng = np.random.default_rng(0)
+    distribution = _uninterned("uniform")
+    samples = sample_size(hole, rng, n=1_000, distribution=distribution)
+    assert samples.min() >= hole.min_size
+    assert samples.max() <= hole.max_size
+
+
+def test_normal_matched_by_equality_not_identity():
+    """Same reasoning and same correction as above, for the "normal" branch."""
+    hole = FeatureOfSize(20.0, 0.0, 0.021, FeatureType.INTERNAL)
+    rng = np.random.default_rng(0)
+    distribution = _uninterned("normal")
+    samples = sample_size(hole, rng, n=1_000, distribution=distribution)
+    assert samples.min() >= hole.min_size
+    assert samples.max() <= hole.max_size
+
+
+def test_zero_clearance_does_not_count_as_yielding():
+    """Exactly touching (clearance == 0, e.g. two identical zero-tolerance
+    features) must not count as a successful clearance fit: the criterion
+    is a strict `> 0`. Also gives clearance_yield its own zero-width-band
+    exercise, analogous to the one in test_types.py / this file above.
+    """
+    hole = FeatureOfSize(20.0, 0.0, 0.0, FeatureType.INTERNAL)
+    shaft = FeatureOfSize(20.0, 0.0, 0.0, FeatureType.EXTERNAL)
+    verdict = clearance_yield(hole, shaft, n=100, seed=0)
+    assert verdict.margin == pytest.approx(0.0)
+    assert verdict.assembles is False
+
+
+def test_clearance_is_subtraction_not_ratio_floor_division():
+    """detail["mean_clearance"]/["min_clearance"] must be holes-shafts (a
+    small mm-scale gap), not floor(holes/shafts). At this nominal size,
+    holes/shafts is always close to 1, so floor division degenerates to 0
+    or 1 -- which coincidentally has the same SIGN as the correct
+    subtraction for the existing all-clearance and all-interference tests,
+    hiding the mutant from a `>0`/`==0` yield check alone. The exact
+    magnitude of mean/min clearance exposes it.
+    """
+    hole, shaft = fit_from_designation(20.0, "H7/g6")
+    verdict = clearance_yield(hole, shaft, n=1_000, seed=0)
+    assert 0.0 < verdict.detail["mean_clearance"] < 0.1
+    assert 0.0 < verdict.detail["min_clearance"] < 0.1
+
+
+# --- Equivalent mutants (documented, not killed) ------------------------------
+#
+# 1. `if sigma <= 0.0:` in place of `if sigma == 0.0:`. sigma = (hi-lo)/6.0,
+#    and FeatureOfSize.__post_init__ already guarantees upper_dev >=
+#    lower_dev, so hi >= lo always and sigma can never be negative. Given
+#    that invariant, `sigma <= 0.0` and `sigma == 0.0` are exactly the same
+#    predicate -- there is no reachable sigma for which they disagree.
+#
+# 2. `assembles=yield_frac == 1.0` in place of `yield_frac >= 1.0`.
+#    yield_frac = float(np.mean(boolean array)), which is mathematically
+#    bounded to [0, 1] -- a mean of 0/1 values can never exceed 1.0. Given
+#    that bound, `>= 1.0` and `== 1.0` are the same predicate; `>= 1.0`
+#    could only diverge from `== 1.0` for a value strictly greater than 1.0,
+#    which yield_frac cannot produce.
