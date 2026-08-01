@@ -89,10 +89,21 @@ def test_fixed_fastener_is_stricter_than_floating():
     assert not fastener_assembles(hole, hole, M8_BOLT, condition="fixed").assembles
 
 
-def test_asymmetric_holes_use_the_worse_one():
-    tight = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.6)
-    loose = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
-    verdict = fastener_assembles(tight, loose, M8_BOLT, condition="floating")
+def test_asymmetric_holes_worse_on_hole_a():
+    """Worse tolerance on hole_a (0.6 > allowable 0.5) must fail."""
+    hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.6)
+    hole_b = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
+    verdict = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
+    assert verdict.assembles is False
+
+
+def test_asymmetric_holes_worse_on_hole_b():
+    """Worse tolerance on hole_b (0.6 > allowable 0.5) must fail.
+    This test proves hole_b is actually considered, not ignored.
+    """
+    hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
+    hole_b = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.6)
+    verdict = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
     assert verdict.assembles is False
 
 
@@ -100,3 +111,11 @@ def test_unknown_condition_rejected():
     hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
     with pytest.raises(ValueError, match="condition"):
         fastener_assembles(hole, hole, M8_BOLT, condition="press")
+
+
+def test_rejects_external_hole_b():
+    """hole_b must be validated as INTERNAL, not silently ignored."""
+    hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
+    external_hole = FeatureOfSize(8.0, -0.1, 0.0, EXTERNAL, position_tol=0.1)
+    with pytest.raises(ValueError, match="hole_b"):
+        fastener_assembles(hole_a, external_hole, M8_BOLT, condition="floating")

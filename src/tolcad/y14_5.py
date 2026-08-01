@@ -80,6 +80,8 @@ def fastener_assembles(
     condition: str,
 ) -> Verdict:
     """Check a two-part fastened joint against the Y14.5 allowable tolerance."""
+    if hole_b.feature_type is not FeatureType.INTERNAL:
+        raise ValueError("hole_b must be an internal feature")
     if condition == "floating":
         allowable = floating_fastener_tolerance(hole_a, fastener)
     elif condition == "fixed":
