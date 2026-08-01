@@ -64,3 +64,30 @@ def test_plate_size_is_serialised_in_the_sidecar():
     spec = sample_assembly(0, 4)
     assert '"plate_size_mm"' in spec.to_json()
     assert '"plate_thickness_mm"' in spec.to_json()
+
+
+def test_the_margin_constants_are_actually_large_enough():
+    """The other margin tests compare against these constants, so they cannot
+    fail if the constants go to zero. This one spells the numbers out.
+
+    A zero wall makes adjacent holes exactly tangent. The containment test in
+    test_build.py cannot catch that either, because tangency has zero
+    intersection volume -- it would sail through as a degenerate B-rep with no
+    ligament between neighbouring features.
+
+    The floors come from layout.py's own derivation: the widest feature is
+    Ø14.5, the largest allowable position tolerance is 2.5 mm diametral, and
+    the ladder applies at most ~1.34x of it, so an axis can sit ~1.75 mm off
+    nominal and a radius can grow 0.1 mm. Two neighbours leaning together
+    consume 3.7 mm; one leaning at an edge consumes 1.85 mm.
+    """
+    from tolcad.gen.layout import _EDGE_MARGIN_MM, _MIN_WALL_MM
+
+    assert _MIN_WALL_MM >= 3.7, (
+        f"_MIN_WALL_MM {_MIN_WALL_MM} leaves no ligament between two features "
+        f"leaning toward each other"
+    )
+    assert _EDGE_MARGIN_MM >= 1.85, (
+        f"_EDGE_MARGIN_MM {_EDGE_MARGIN_MM} lets a feature leaning at the edge "
+        f"break out of the plate"
+    )
