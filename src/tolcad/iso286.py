@@ -3,6 +3,18 @@
 Table values transcribed from ISO 286-1. Published in micrometres; converted to
 millimetres at the table boundary so that no downstream code handles microns.
 
+Supported shaft letters and grades (fit_from_designation, hole-basis 'H' only):
+  - 'g', 'h': es-based (tabulated value is the upper deviation); valid for any
+    grade present in _IT_MICRONS (5-8 as currently tabulated).
+  - 'p': ei-based (tabulated value is the lower deviation); valid for any grade
+    present in _IT_MICRONS (5-8 as currently tabulated).
+  - 'k': ei-based, but ISO 286's tabulated 'k' fundamental deviation is only
+    valid for IT grades 4-7. Grade 8 and above use a different rule this module
+    does not implement, so 'k' is rejected outside grades 4-7 rather than
+    silently returning a wrong number.
+Any shaft letter present in _DEVIATION_MICRONS but not classified as es-based
+or ei-based below is rejected with ValueError rather than silently guessed.
+
 TRANSCRIPTION SOURCE: replace this line with the exact edition and table number the
 values below were copied from (e.g. "ISO 286-1:2010, Table 1 and Table 6"). Leaving
 this line unedited means the tables are unverified and no derived number may be
@@ -31,6 +43,22 @@ _DEVIATION_MICRONS: dict[str, list[int]] = {
     "h": [0] * 13,
     "k": [0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4, 5],
     "p": [6, 12, 15, 18, 22, 26, 32, 37, 43, 50, 56, 62, 68],
+}
+
+# Explicit classification of how to interpret each tabulated shaft deviation.
+# es-based: the tabulated value is the upper deviation (es); lower = es - IT.
+# ei-based: the tabulated value is the lower deviation (ei); upper = ei + IT.
+# A shaft letter present in _DEVIATION_MICRONS but absent from both sets below
+# is a transcription/maintenance gap and must raise rather than fall through.
+_ES_BASED_SHAFT_LETTERS: frozenset[str] = frozenset({"g", "h"})
+_EI_BASED_SHAFT_LETTERS: frozenset[str] = frozenset({"k", "p"})
+
+# Shaft letters whose tabulated deviation is only valid for a restricted range
+# of IT grades. Letters not listed here are treated as valid for any grade
+# present in _IT_MICRONS. 'k' deviation per ISO 286 is only tabulated for IT
+# grades 4-7; using it with other grades would silently misapply the value.
+_SHAFT_LETTER_GRADE_RANGE: dict[str, tuple[int, int]] = {
+    "k": (4, 7),
 }
 
 
@@ -86,17 +114,33 @@ def fit_from_designation(
     if hole_letter != "H":
         raise ValueError(f"only hole-basis fits supported, got {hole_letter!r}")
 
+    grade_range = _SHAFT_LETTER_GRADE_RANGE.get(shaft_letter)
+    if grade_range is not None:
+        lo, hi = grade_range
+        if not (lo <= shaft_grade <= hi):
+            raise ValueError(
+                f"shaft letter {shaft_letter!r} deviation is only tabulated for "
+                f"IT grades {lo}-{hi}; got grade {shaft_grade} (designation "
+                f"{designation!r})"
+            )
+
     hole_it = it_grade(nominal_mm, hole_grade)
     hole = FeatureOfSize(nominal_mm, 0.0, hole_it, FeatureType.INTERNAL)
 
     shaft_it = it_grade(nominal_mm, shaft_grade)
     dev = fundamental_deviation(nominal_mm, shaft_letter)
 
-    if shaft_letter in ("g", "h"):
+    if shaft_letter in _ES_BASED_SHAFT_LETTERS:
         # Deviation is the upper limit (es); lower is es - IT.
         shaft = FeatureOfSize(nominal_mm, dev - shaft_it, dev, FeatureType.EXTERNAL)
-    else:
+    elif shaft_letter in _EI_BASED_SHAFT_LETTERS:
         # Deviation is the lower limit (ei); upper is ei + IT.
         shaft = FeatureOfSize(nominal_mm, dev, dev + shaft_it, FeatureType.EXTERNAL)
+    else:
+        raise ValueError(
+            f"shaft letter {shaft_letter!r} is tabulated in _DEVIATION_MICRONS but "
+            "not classified as es-based or ei-based; add it to "
+            "_ES_BASED_SHAFT_LETTERS or _EI_BASED_SHAFT_LETTERS before use"
+        )
 
     return hole, shaft

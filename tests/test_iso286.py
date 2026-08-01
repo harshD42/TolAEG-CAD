@@ -60,6 +60,43 @@ def test_malformed_designation_rejected():
         fit_from_designation(20.0, "H7g6")
 
 
+def test_h7h6_at_20mm_matches_expected_limits():
+    """Regression: 'h' is es-based (tabulated deviation is always 0)."""
+    hole, shaft = fit_from_designation(20.0, "H7/h6")
+    assert hole.min_size == pytest.approx(20.000)
+    assert hole.max_size == pytest.approx(20.021)
+    assert shaft.max_size == pytest.approx(20.000)
+    assert shaft.min_size == pytest.approx(19.987)
+
+
+def test_h7k6_at_20mm_matches_expected_limits():
+    """Regression: 'k' is ei-based and grade 6 is within the supported 4-7 range."""
+    hole, shaft = fit_from_designation(20.0, "H7/k6")
+    assert hole.min_size == pytest.approx(20.000)
+    assert hole.max_size == pytest.approx(20.021)
+    assert shaft.min_size == pytest.approx(20.002)
+    assert shaft.max_size == pytest.approx(20.015)
+
+
+def test_unclassified_shaft_letter_rejected(monkeypatch):
+    """FINDING 1: a shaft letter tabulated in _DEVIATION_MICRONS but not
+    classified as es-based or ei-based must raise, not silently fall into
+    either interpretation via a catch-all else branch."""
+    import tolcad.iso286 as mod
+
+    monkeypatch.setitem(mod._DEVIATION_MICRONS, "z", [0] * 13)
+    with pytest.raises(ValueError, match="not classified"):
+        fit_from_designation(20.0, "H7/z6")
+
+
+def test_h7k8_rejects_unsupported_k_grade():
+    """FINDING 2: 'k' fundamental deviation is only tabulated for IT grades
+    4-7; grade 8 (though present in _IT_MICRONS) must be rejected rather than
+    silently combined with the grade-6/7-only 'k' deviation value."""
+    with pytest.raises(ValueError, match="k"):
+        fit_from_designation(20.0, "H7/k8")
+
+
 @pytest.mark.xfail(
     reason="Fails until table values are verified against print. Do not delete.",
     strict=False,
