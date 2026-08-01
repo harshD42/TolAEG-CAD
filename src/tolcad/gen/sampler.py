@@ -61,6 +61,24 @@ _ISO_FIT_NOMINALS_MM: tuple[float, ...] = (10.0, 12.0, 16.0, 20.0, 25.0)
 # zone and the built geometry cannot drift apart.
 _PLATE_THICKNESS_MM = 8.0
 
+# Fastener size tolerance. NO STANDARD BEHIND THESE TWO NUMBERS, deliberately.
+# A real citation would be ISO 4759-1 (tolerances for fasteners) or ISO 965
+# (ISO general purpose metric screw threads -- tolerances), neither of which has
+# been obtained and checked against the primary text, and inventing a citation
+# is worse than declaring the gap. So this is a flat, standard-free
+# simplification, stated as such -- the same treatment features.py gives the
+# tapped hole's band.
+#
+# PROVABLY INERT, for the same structural reason. A fastener is an EXTERNAL
+# feature, so its MMC is max_size = nominal + upper_dev. _FASTENER_UPPER_DEV_MM
+# is 0.0, so MMC is exactly the nominal diameter, and y14_5.fastener_assembles
+# reads fastener.mmc and nothing else -- never LMC, never the band width. The
+# lower deviation therefore cannot move any verdict in the corpus at any value,
+# and the upper deviation could only move one by ceasing to be zero.
+# tests/gen/test_sampler.py pins MMC == nominal over every sampled Tier 1 mate.
+_FASTENER_LOWER_DEV_MM = -0.1
+_FASTENER_UPPER_DEV_MM = 0.0
+
 
 def _mc_seed_for(seed: int, mate_index: int) -> int:
     """Deterministic, collision-free Monte Carlo seed for one mate."""
@@ -73,7 +91,11 @@ def _tier1_mate(rng: np.random.Generator, difficulty: int) -> MateSpec:
     kind = str(rng.choice(_TIER1_KINDS))
 
     hole = clearance_hole_for(fastener_mm, grade)
-    fastener = {"nominal": fastener_mm, "lower_dev": -0.1, "upper_dev": 0.0}
+    fastener = {
+        "nominal": fastener_mm,
+        "lower_dev": _FASTENER_LOWER_DEV_MM,
+        "upper_dev": _FASTENER_UPPER_DEV_MM,
+    }
 
     # Allowable per Y14.5: floating T = H - F; fixed splits H - F across both parts.
     hole_mmc = hole["nominal"] + hole["lower_dev"]

@@ -186,3 +186,62 @@ def test_projected_zone_survives_the_sidecar_round_trip():
         if any(m.kind == "fixed_fastener" for m in s.mates)
     )
     assert AssemblySpec.from_json(spec.to_json()) == spec
+
+
+def test_the_fastener_tolerance_is_inert_because_its_mmc_is_the_nominal():
+    """Pins the inertness argument for _FASTENER_LOWER_DEV_MM / _UPPER_DEV_MM.
+
+    Those two numbers have no standard behind them -- a real citation would be
+    ISO 4759-1 or ISO 965 -- and are declared in sampler.py as a deliberate
+    standard-free simplification. The reason that is acceptable is structural,
+    not empirical: a fastener is an EXTERNAL feature, so its MMC is
+    nominal + upper_dev, the upper deviation is 0.0, and
+    y14_5.fastener_assembles reads fastener.mmc and nothing else. The lower
+    deviation is therefore unreachable from any verdict at any value.
+
+    If this ever fails, the fastener band has stopped being free and the
+    benchmark needs a real source for it before the numbers are published.
+    """
+    from tolcad.types import FeatureOfSize, FeatureType
+
+    seen = 0
+    for seed in range(50):
+        for difficulty in range(1, MAX_DIFFICULTY + 1):
+            for mate in sample_assembly(seed, difficulty).mates:
+                if mate.kind == "iso_fit":
+                    continue
+                f = mate.fastener
+                assert f is not None, f"{mate.kind} mate has no fastener"
+                feature = FeatureOfSize(
+                    f["nominal"], f["lower_dev"], f["upper_dev"],
+                    FeatureType.EXTERNAL,
+                )
+                assert feature.mmc == pytest.approx(f["nominal"], abs=1e-9), (
+                    f"seed {seed} d{difficulty}: fastener MMC {feature.mmc} is not "
+                    f"its nominal {f['nominal']}; the tolerance band is no longer "
+                    f"inert and needs a cited source"
+                )
+                assert f["upper_dev"] == 0.0
+                seen += 1
+    assert seen > 0, "no Tier 1 mates sampled, so this proved nothing"
+
+
+def test_the_fastener_tolerance_is_named_and_declared_standard_free():
+    """A bare -0.1 in the sampler body is exactly what a reviewer greps for.
+
+    The number is part of the benchmark definition being frozen, so it must be
+    a named constant carrying its own inertness argument, not an inline literal.
+    """
+    import pathlib
+    import tolcad.gen.sampler as mod
+    from tolcad.gen.sampler import _FASTENER_LOWER_DEV_MM, _FASTENER_UPPER_DEV_MM
+
+    assert _FASTENER_UPPER_DEV_MM == 0.0
+    assert _FASTENER_LOWER_DEV_MM < 0.0
+
+    text = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+    assert '"lower_dev": -0.1' not in text, "the literal is back inline"
+    assert "NO STANDARD BEHIND THESE TWO NUMBERS" in text, (
+        "the standard-free declaration was removed; either cite a primary "
+        "source for the fastener band or keep the declaration"
+    )

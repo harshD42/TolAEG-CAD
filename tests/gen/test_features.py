@@ -197,6 +197,12 @@ def test_each_series_carries_its_iso273_tolerance_grade():
     (8.0, "close", 0.15),    # Ø8.4  -> IT12 in >6-10
     (8.0, "normal", 0.22),   # Ø9.0  -> IT13 in >6-10
     (8.0, "loose", 0.36),    # Ø10.0 -> IT14 in >6-10
+    # THE CASE THAT MOTIVATES THE WHOLE CHECK. M10 loose: the HOLE is Ø12.0, in
+    # the >10-18 band (IT14 = 0.43), while the M10 FASTENER sits in >6-10 (which
+    # would give 0.36). Looking the grade up at the fastener diameter instead of
+    # the hole diameter is the natural mistake, and this pair is where the two
+    # answers differ across a band boundary.
+    (10.0, "loose", 0.43),   # Ø12.0 -> IT14 in >10-18, NOT the M10 band's 0.36
     (12.0, "loose", 0.43),   # Ø14.5 -> IT14 in >10-18
 ])
 def test_clearance_hole_upper_dev_comes_from_the_series_grade(

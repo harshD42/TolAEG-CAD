@@ -501,7 +501,11 @@ At the end of Task 3:
 - Every diameter in `features.py` is traceable to ISO 273-1979 Table 1 or ISO 2306-1972 Table 1, cited in the module docstring
 - Every clearance hole's tolerance is the ISO 273 series grade at its own diameter, via `iso286.py`
 - `iso286.py` carries IT12-IT14 with the mm/µm publication split documented, and `CLAUDE.md` no longer overstates the unit rule
-- The only remaining untraced number in the feature library is the tapped hole's tolerance band, documented as a deliberate simplification and provably inert
+- **Two** numbers in the generator remain untraced, both documented as deliberate standard-free simplifications and both provably inert:
+  1. `features._TAPPED_HOLE_UPPER_DEV_MM = 0.2`, the tapped hole's tolerance band. Inert because `y14_5`'s B-4 formula never reads `hole_b`'s size in the fixed-fastener case.
+  2. `sampler._FASTENER_LOWER_DEV_MM = -0.1` (with `_FASTENER_UPPER_DEV_MM = 0.0`), the fastener's size tolerance. A real citation would be ISO 4759-1 or ISO 965; neither has been obtained. Inert because a fastener is external, so its MMC is `nominal + upper_dev = nominal`, and `y14_5.fastener_assembles` reads `fastener.mmc` and nothing else — the lower deviation is unreachable from any verdict at any value.
+
+  (An earlier revision of this statement said "the only remaining untraced number ... is the tapped hole's", which was false: the fastener band was inline in `sampler._tier1_mate` and carried no comment at all. Corrected before pre-registration.)
 - The layout floors are re-measured against the new worst case, with no constant changed
 
 **Deliberately NOT done here:**
@@ -512,4 +516,4 @@ At the end of Task 3:
 
 ## Open question for the human
 
-The tapped hole keeps a flat +0.2/-0.0 band with no standard behind it. It is provably inert today, since `hole_b`'s size never enters B-4. If a later phase ever makes the tapped feature load-bearing — a press-fit dowel under an MMC modifier, say, which `y14_5.py`'s docstring already flags as the one case where its bonus-cancellation argument fails — that number stops being free and needs a real source.
+The tapped hole keeps a flat +0.2/-0.0 band with no standard behind it, and the fastener keeps a flat -0.1/+0.0 one. Both are provably inert today: `hole_b`'s size never enters B-4, and the fastener's upper deviation is zero so its MMC is the nominal. If a later phase ever makes the tapped feature load-bearing — a press-fit dowel under an MMC modifier, say, which `y14_5.py`'s docstring already flags as the one case where its bonus-cancellation argument fails — or ever gives the fastener a non-zero upper deviation, those numbers stop being free and need real sources (ISO 4759-1 or ISO 965 for the fastener).

@@ -19,7 +19,16 @@ ISO 2306 clause 0 says the drill diameter is only APPROXIMATELY D - P, with the
 actual sizes selected from the ISO/R 235 preferred drill series. Do not "correct"
 them to the subtraction.
 
-All values are pinned by tests so a silent edit cannot drift them.
+Every value traceable to one of those two standards -- all 21 clearance-hole
+diameters and all 7 tapping-drill diameters -- is pinned to its exact published
+figure by tests, so a silent edit cannot drift them. The one number here that no
+standard fixes, _TAPPED_HOLE_UPPER_DEV_MM, is deliberately NOT pinned to a value:
+it is arbitrary by construction, so pinning it would only assert that an
+arbitrary number has not changed. It is bounded instead, by
+test_tapped_hole_is_always_smaller_than_its_fastener, which enforces the one
+property that actually matters -- the tapped hole stays below the fastener at
+LMC, which is what makes a fixed joint geometrically distinct from a floating
+one. See the comment on the constant for why no verdict depends on it.
 """
 
 from __future__ import annotations
