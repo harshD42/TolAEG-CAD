@@ -13,6 +13,12 @@ _LARGEST_RADIUS_MM = max(
     clearance_hole_for(f, "loose")["nominal"] for f in FASTENER_SIZES
 ) / 2.0
 
+# Cruder second floors, spelled as numbers so zeroing a production constant is
+# caught even if the derivation above is edited. Recompute these whenever the
+# clearance-hole table, its tolerance grades, or the difficulty ladder changes.
+_LITERAL_WALL_FLOOR_MM = 3.78
+_LITERAL_EDGE_FLOOR_MM = 1.89
+
 
 def test_largest_clearance_hole_needs_more_than_the_old_hardcoded_pitch():
     """The premise of I3: 12 mm pitch cannot hold two Ø14.5 features."""
@@ -136,26 +142,47 @@ def test_the_margin_constants_are_actually_large_enough():
     a position tolerance is Ø14.5 (M12 loose); its allowable is 14.5 - 12.0 =
     2.5 mm diametral, the ladder applies at most 1.34x of it, so the applied
     tolerance is 3.35 mm diametral and an axis sits at most 3.35 / 2 = 1.675 mm
-    off nominal. A radius can grow another 0.1 mm. Two neighbours leaning
-    together therefore consume 3.55 mm; one leaning at an edge consumes
-    1.775 mm.
+    off nominal. Since clearance holes moved to their ISO 273 series grades,
+    that same hole carries IT14 (>10-18 mm band, 0.43 mm diametral), so a
+    radius can grow another 0.215 mm. Two neighbours leaning together
+    therefore consume 3.78 mm; one leaning at an edge consumes 1.890 mm.
 
-    The 3.7 / 1.85 literals below are the original figures, computed with the
-    axis offset rounded up to 1.75 mm. They are kept BECAUSE they are looser
-    than the exact 3.55 / 1.775 -- a conservative fixed floor that holds even
-    if the derived one above is ever mis-derived.
+    _LITERAL_WALL_FLOOR_MM / _LITERAL_EDGE_FLOOR_MM (3.78 / 1.89) are that same
+    arithmetic spelled out as fixed numbers, not a looser margin above it --
+    unlike the 3.7 / 1.85 figures they replace, which were rounded up from the
+    pre-ISO-273 axis offset and had quietly drifted below the current
+    requirement without either layout test noticing. See
+    test_the_literal_floor_is_not_below_the_derived_one for why that gap
+    matters.
 
     Ø25 iso_fit bores are wider than Ø14.5 and do not change any of this: they
     carry position_tol 0.0 and an IT7-class band (~0.01 mm on the radius), so
     they are never the binding case for a margin sized against position error.
     """
-    from tolcad.gen.layout import _EDGE_MARGIN_MM, _MIN_WALL_MM
-
-    assert _MIN_WALL_MM >= 3.7, (
+    assert _MIN_WALL_MM >= _LITERAL_WALL_FLOOR_MM, (
         f"_MIN_WALL_MM {_MIN_WALL_MM} leaves no ligament between two features "
         f"leaning toward each other"
     )
-    assert _EDGE_MARGIN_MM >= 1.85, (
+    assert _EDGE_MARGIN_MM >= _LITERAL_EDGE_FLOOR_MM, (
         f"_EDGE_MARGIN_MM {_EDGE_MARGIN_MM} lets a feature leaning at the edge "
         f"break out of the plate"
+    )
+
+
+def test_the_literal_floor_is_not_below_the_derived_one():
+    """The literal is a second, cruder floor -- it must not undercut the real one.
+
+    When clearance holes moved from a flat +0.2 to their ISO 273 series grades,
+    the worst-case growth at M12 coarse went from 0.100 to 0.215 mm and the
+    required wall rose from 3.55 to 3.78. The literal still said 3.7. NEITHER
+    layout test failed: the derived floor recomputed correctly and passed, and
+    the literal passed too -- it had simply stopped being a floor, and would
+    have accepted a _MIN_WALL_MM of 3.75 that is genuinely too small.
+
+    This test is what notices next time.
+    """
+    required = 2.0 * _worst_case_radial_excursion_mm()
+    assert _LITERAL_WALL_FLOOR_MM >= required - 1e-9, (
+        f"the literal floor {_LITERAL_WALL_FLOOR_MM} is below the derived "
+        f"requirement {required:.4f}; recompute it from the tables"
     )

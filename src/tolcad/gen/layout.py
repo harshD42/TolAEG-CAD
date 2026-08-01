@@ -18,14 +18,18 @@ tolerance is (14.5 - 12.0) = 2.5 mm diametral, and the difficulty ladder
 applies at most 1.34x of it (sampler._TOL_FRACTION_RANGE[4] hi), so the applied
 tolerance tops out at 2.5 * 1.34 = 3.35 mm diametral and a feature's axis can
 sit up to 3.35 / 2 = 1.675 mm off nominal in any direction. Hole size can also
-grow by upper_dev (+0.2 mm diameter, +0.1 mm radius). One feature's edge can
-therefore reach 1.675 + 0.1 = 1.775 mm past where nominal geometry puts it.
+grow by upper_dev -- the clearance hole's own ISO 273 series grade at its own
+diameter (via iso286.py), which for the widest case, Ø14.5 M12 loose, is IT14
+in the >10-18 mm band: +0.43 mm diameter, +0.215 mm radius. One feature's edge
+can therefore reach 1.675 + 0.215 = 1.890 mm past where nominal geometry puts
+it.
 
   _MIN_WALL_MM = 4.0   Two neighbours leaning toward each other consume at
-                       worst 1.675 + 1.675 + 0.1 + 0.1 = 3.55 mm, so 4.0 mm of
-                       nominal material between them still leaves a ligament.
+                       worst 1.675 + 1.675 + 0.215 + 0.215 = 3.78 mm, so 4.0 mm
+                       of nominal material between them still leaves a
+                       ligament (5.5% headroom).
   _EDGE_MARGIN_MM = 5.0  A single feature leaning at an edge consumes at worst
-                       1.675 + 0.1 = 1.775 mm, so 5.0 mm leaves ~2.8x headroom.
+                       1.675 + 0.215 = 1.890 mm, so 5.0 mm leaves ~2.6x headroom.
 
 Ø14.5 (M12 loose) IS NOT THE WIDEST FEATURE, and that is fine. An iso_fit mate
 is laid out at its own nominal, which the sampler draws up to Ø25, so Ø25 is
@@ -39,10 +43,13 @@ Both are nominal-geometry margins: the reference STEP is drilled at nominal
 positions and nominal sizes. The tolerance zones above are what the margins are
 sized to survive, not what the geometry models.
 
-tests/gen/test_layout.py re-derives the 3.55 / 1.775 requirement from
-features._CLEARANCE_HOLE_MM and sampler._TOL_FRACTION_RANGE at test time, so
-raising the ladder or widening the clearance table cannot leave these two
-constants quietly too small.
+tests/gen/test_layout.py re-derives the 3.78 / 1.890 requirement from
+features.clearance_hole_for (ISO 273 series grade included) and
+sampler._TOL_FRACTION_RANGE at test time, so raising the ladder or widening the
+clearance table cannot leave these two constants quietly too small. A second,
+cruder pair of literal floors in that file (_LITERAL_WALL_FLOOR_MM,
+_LITERAL_EDGE_FLOOR_MM) is checked against the same derivation, so it cannot
+drift stale the way it did when clearance holes moved onto ISO 273.
 """
 
 from __future__ import annotations
