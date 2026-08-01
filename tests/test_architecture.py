@@ -213,3 +213,30 @@ def test_core_imports_without_numpy_optional_deps_beyond_declared():
     import tolcad.iso286  # noqa: F401
     import tolcad.montecarlo  # noqa: F401
     import tolcad.y14_5  # noqa: F401
+
+
+CORE_LIGHT_MODULES = (
+    "types", "y14_5", "iso286", "montecarlo", "checker", "reliability",
+)
+HEAVY_PACKAGES = {"cadquery", "OCP"}
+
+
+def test_checker_core_does_not_import_cad_libraries():
+    """The checker must stay installable and runnable without CadQuery.
+
+    Gate A's "runs with no commercial licence" guarantee depends on the core
+    being light. tolcad.gen may import CadQuery; the six modules below may not,
+    and may not import tolcad.gen either.
+    """
+    offenders = []
+    for stem in CORE_LIGHT_MODULES:
+        path = CORE / f"{stem}.py"
+        assert path.is_file(), f"expected core module missing: {path}"
+        imported = _imported_modules(path)
+        bad = {m for m in imported if m.split(".")[0] in HEAVY_PACKAGES}
+        bad |= {m for m in imported if m.startswith("tolcad.gen")}
+        if bad:
+            offenders.append(f"{stem}.py imports {sorted(bad)}")
+    assert not offenders, (
+        "checker core must not depend on CAD libraries: " + "; ".join(offenders)
+    )
