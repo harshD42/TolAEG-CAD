@@ -14,6 +14,7 @@ def _imports_from_code(code: str) -> set[str]:
     - Named imports: from X import Y
     - Bare relative imports: from . import X, from .. import Y (Finding 1)
     - Dynamic imports: importlib.import_module("X"), __import__("X") (Finding 2)
+    - exec/eval with string literals: exec("import X"), eval("...") (Finding CORS)
     """
     tree = ast.parse(code)
     names: set[str] = set()
@@ -37,6 +38,19 @@ def _imports_from_code(code: str) -> set[str]:
             elif isinstance(node.func, ast.Name):
                 if node.func.id == "__import__":
                     is_import_call = True
+                # exec() and eval() with string literals: check for import statements
+                elif node.func.id in ("exec", "eval"):
+                    if node.args:
+                        first_arg = node.args[0]
+                        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                            # Extract any import statements from the string literal
+                            try:
+                                inner_names = _imports_from_code(first_arg.value)
+                                names.update(inner_names)
+                            except SyntaxError:
+                                # If the string is not valid Python, skip it
+                                pass
+                    continue
 
             if is_import_call and node.args:
                 first_arg = node.args[0]
@@ -79,6 +93,43 @@ def test_dynamic_import_of_validation_is_caught():
         assert expected in names, (
             f"Dynamic import '{code}' should be caught; found: {names}"
         )
+
+
+def test_exec_with_validation_import_is_caught():
+    """CORS Finding: exec("import validation") must be caught.
+
+    The pythonpath change to include "." in the repo root means core modules
+    can no longer rely on ModuleNotFoundError at runtime. The AST lint is now
+    the sole enforcement. This test proves exec() calls with import statements
+    are still caught.
+    """
+    code = 'exec("import validation")'
+    names = _imports_from_code(code)
+    assert "validation" in names, (
+        f"exec() with validation import must be caught; found: {names}"
+    )
+
+
+def test_eval_with_validation_import_is_caught():
+    """CORS Finding: eval() calls with import statements must be caught."""
+    code = 'eval("__import__(\'validation\')")'
+    names = _imports_from_code(code)
+    assert "validation" in names, (
+        f"eval() with validation import must be caught; found: {names}"
+    )
+
+
+def test_innocent_exec_call_is_not_flagged():
+    """CORS Finding: innocent exec("x = 1") must NOT be flagged as importing validation."""
+    code = 'exec("x = 1")'
+    names = _imports_from_code(code)
+    assert "validation" not in names, (
+        f"Innocent exec() should not flag validation; found: {names}"
+    )
+    # The set should be empty for non-import code
+    assert len(names) == 0, (
+        f"Innocent exec() should not extract any names; found: {names}"
+    )
 
 
 def test_no_core_module_imports_validation():

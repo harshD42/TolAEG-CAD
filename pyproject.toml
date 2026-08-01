@@ -16,6 +16,14 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# pythonpath includes both "src" (the installed package) and "." (repo root).
+# validation/ sits deliberately outside the installed package at the repo root,
+# permitting optional SolidWorks cross-checks without polluting core dependencies.
+# Because pythonpath now includes ".", the runtime defence (ModuleNotFoundError when
+# a core module tries `import validation`) is removed. The AST lint in
+# tests/test_architecture.py is now the sole enforcement of core-vs-validation isolation.
+# That lint MUST NOT be weakened; it catches direct imports, bare relative imports,
+# dynamic imports (importlib, __import__), and obfuscated calls (exec, eval).
 pythonpath = ["src", "."]
 addopts = "--strict-markers"
 markers = [
