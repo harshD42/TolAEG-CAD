@@ -20,6 +20,16 @@ but NOT a proof that the checker is reliable in general. A 1.0 result means:
 If a design has all margins well outside the tested band, this metric cannot detect its
 instability — it will report 1.0. This is correct for the measurement definition but must
 not be mistaken for a strong guarantee.
+
+SCOPE: TIER 1 MATES ONLY.
+`margin` is not a single comparable unit across tiers: for Tier 1 mates (virtual_condition,
+floating_fastener, fixed_fastener) it is millimetres of geometric slack, but for Tier 2
+(iso_fit) it is a Monte Carlo clearance YIELD in [0, 1]. Comparing a yield to
+`BOUNDARY_BAND * epsilon` (an mm-scale quantity) is meaningless, and Tier 2 mates have no
+sub-dict fields for `_perturb` to find (their fields are top-level scalars), so they would
+silently score a vacuous 1.0 even if never actually perturbed. For both reasons,
+`verdict_stability` REJECTS any mate whose `type` is not one of the three Tier 1 types.
+There is no partial support for Tier 2 mates in this module.
 """
 
 from __future__ import annotations
@@ -38,6 +48,11 @@ from tolcad.checker import check
 BOUNDARY_BAND = 2.0
 
 _PERTURBABLE = ("nominal", "lower_dev", "upper_dev", "position_tol")
+
+# The only mate types whose margin is millimetres of geometric slack and whose
+# parameters live in perturbable sub-dicts. iso_fit (Tier 2) is deliberately
+# excluded; see the module docstring.
+_TIER1_TYPES = frozenset({"virtual_condition", "floating_fastener", "fixed_fastener"})
 
 
 @dataclass(frozen=True)
@@ -85,15 +100,31 @@ def verdict_stability(mates: list[dict], epsilon: float, seed: int) -> Stability
     this case from a verified 1.0 stability.
 
     Args:
-        mates: List of mate specifications to test.
+        mates: List of mate specifications to test. Every mate must be a Tier 1
+            type (virtual_condition, floating_fastener, fixed_fastener). Tier 2
+            (iso_fit) mates are rejected; see the module docstring for why.
         epsilon: Perturbation magnitude.
         seed: Random seed for reproducibility.
 
     Returns:
         StabilityResult with stability value and test counts.
+
+    Raises:
+        ValueError: if `mates` is empty, or if any mate's `type` is not a
+            Tier 1 type.
     """
     if not mates:
         raise ValueError("need at least one mate to measure stability")
+
+    for mate in mates:
+        mate_type = mate.get("type")
+        if mate_type not in _TIER1_TYPES:
+            raise ValueError(
+                f"verdict_stability only supports Tier 1 mate types "
+                f"{sorted(_TIER1_TYPES)}; got {mate_type!r}. Tier 2 margins "
+                "(e.g. iso_fit's Monte Carlo yield) are not commensurable "
+                "with Tier 1 mm-of-slack margins — see the module docstring."
+            )
 
     rng = np.random.default_rng(seed)
     tested = stable = excluded = 0

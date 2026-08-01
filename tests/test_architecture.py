@@ -13,8 +13,10 @@ def _imports_from_code(code: str) -> set[str]:
     - Direct imports: import X, import X.Y
     - Named imports: from X import Y
     - Bare relative imports: from . import X, from .. import Y (Finding 1)
-    - Dynamic imports: importlib.import_module("X"), __import__("X") (Finding 2)
-    - exec/eval with string literals: exec("import X"), eval("...") (Finding CORS)
+    - Dynamic imports: importlib.import_module("X"), __import__("X"), including
+      the bare-name form after `from importlib import import_module`, and the
+      attribute form `builtins.__import__("X")` (Finding 2)
+    - exec/eval with string literals: exec("import X"), eval("...") (Finding 4)
     """
     tree = ast.parse(code)
     names: set[str] = set()
@@ -30,16 +32,20 @@ def _imports_from_code(code: str) -> set[str]:
                 # node.module is None, so check alias.name for what's being imported
                 names.update(alias.name for alias in node.names)
         elif isinstance(node, ast.Call):
-            # Dynamic imports: importlib.import_module("X") or __import__("X")
+            # Dynamic imports: import_module(...) or __import__(...), whether
+            # called as a bare name (from importlib import import_module;
+            # import_module(...)) or as an attribute (importlib.import_module(...),
+            # builtins.__import__(...)). Both forms are things a developer could
+            # write without intending to evade the lint.
             is_import_call = False
-            if isinstance(node.func, ast.Attribute):
-                if node.func.attr == "import_module":
-                    is_import_call = True
-            elif isinstance(node.func, ast.Name):
-                if node.func.id == "__import__":
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr in ("import_module", "__import__"):
+                is_import_call = True
+            elif isinstance(func, ast.Name):
+                if func.id in ("import_module", "__import__"):
                     is_import_call = True
                 # exec() and eval() with string literals: check for import statements
-                elif node.func.id in ("exec", "eval"):
+                elif func.id in ("exec", "eval"):
                     if node.args:
                         first_arg = node.args[0]
                         if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
@@ -95,8 +101,35 @@ def test_dynamic_import_of_validation_is_caught():
         )
 
 
+def test_bare_name_import_module_call_is_caught():
+    """Finding 2 (escalated): `from importlib import import_module` followed by a
+    bare `import_module("validation")` call must be caught.
+
+    Previously only the attribute form (importlib.import_module(...)) was
+    checked; a developer who imports the name directly would slip past the lint.
+    """
+    code = 'from importlib import import_module\nimport_module("validation")'
+    names = _imports_from_code(code)
+    assert "validation" in names, (
+        f"bare-name import_module() call must be caught; found: {names}"
+    )
+
+
+def test_dunder_import_as_attribute_is_caught():
+    """Finding 2 (escalated): `builtins.__import__("validation")` must be caught.
+
+    Previously only the bare-name form (__import__(...)) was checked; accessing
+    it as an attribute of a module (e.g. builtins.__import__) would slip past.
+    """
+    code = 'import builtins\nbuiltins.__import__("validation")'
+    names = _imports_from_code(code)
+    assert "validation" in names, (
+        f"__import__ accessed as an attribute must be caught; found: {names}"
+    )
+
+
 def test_exec_with_validation_import_is_caught():
-    """CORS Finding: exec("import validation") must be caught.
+    """Finding 4: exec("import validation") must be caught.
 
     The pythonpath change to include "." in the repo root means core modules
     can no longer rely on ModuleNotFoundError at runtime. The AST lint is now
@@ -111,7 +144,7 @@ def test_exec_with_validation_import_is_caught():
 
 
 def test_eval_with_validation_import_is_caught():
-    """CORS Finding: eval() calls with import statements must be caught."""
+    """Finding 4: eval() calls with import statements must be caught."""
     code = 'eval("__import__(\'validation\')")'
     names = _imports_from_code(code)
     assert "validation" in names, (
@@ -120,7 +153,7 @@ def test_eval_with_validation_import_is_caught():
 
 
 def test_innocent_exec_call_is_not_flagged():
-    """CORS Finding: innocent exec("x = 1") must NOT be flagged as importing validation."""
+    """Finding 4: innocent exec("x = 1") must NOT be flagged as importing validation."""
     code = 'exec("x = 1")'
     names = _imports_from_code(code)
     assert "validation" not in names, (

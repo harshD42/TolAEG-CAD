@@ -14,10 +14,18 @@ def test_samples_stay_within_tolerance_limits():
 
 
 def test_uniform_distribution_spans_the_range():
+    """Regression: the mean alone cannot distinguish uniform from normal sampling
+    (both are centred on the same midpoint), so an implementation that silently
+    ignores the `distribution` argument would still pass a mean-only check.
+    The standard deviation is diagnostic: for this feature (range 0.021 mm),
+    a true uniform draw has std ~= range/sqrt(12) ~= 0.00605, while the
+    (truncated) normal draw used elsewhere has std ~= range/6 ~= 0.00351.
+    """
     hole = FeatureOfSize(20.0, 0.0, 0.021, FeatureType.INTERNAL)
     rng = np.random.default_rng(42)
     samples = sample_size(hole, rng, n=10_000, distribution="uniform")
     assert samples.mean() == pytest.approx(20.0105, abs=1e-3)
+    assert samples.std() == pytest.approx(0.00605, abs=1e-3)
 
 
 def test_clearance_fit_yields_fully():

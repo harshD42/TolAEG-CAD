@@ -79,13 +79,28 @@ def fastener_assembles(
     fastener: FeatureOfSize,
     condition: str,
 ) -> Verdict:
-    """Check a two-part fastened joint against the Y14.5 allowable tolerance."""
+    """Check a two-part fastened joint against the Y14.5 allowable tolerance.
+
+    The allowable tolerance is governed by the SMALLER of the two hole MMCs:
+    a smaller hole leaves less clearance for the fastener, so it is always the
+    limiting case. Using only hole_a (as an earlier version of this function
+    did) made the verdict depend on argument order whenever hole_a and hole_b
+    differed in SIZE, not just in position_tol.
+    """
+    if hole_a.feature_type is not FeatureType.INTERNAL:
+        raise ValueError("hole_a must be an internal feature")
     if hole_b.feature_type is not FeatureType.INTERNAL:
         raise ValueError("hole_b must be an internal feature")
+
+    if hole_a.mmc <= hole_b.mmc:
+        governing_hole, governing_label = hole_a, "hole_a"
+    else:
+        governing_hole, governing_label = hole_b, "hole_b"
+
     if condition == "floating":
-        allowable = floating_fastener_tolerance(hole_a, fastener)
+        allowable = floating_fastener_tolerance(governing_hole, fastener)
     elif condition == "fixed":
-        allowable = fixed_fastener_tolerance(hole_a, fastener)
+        allowable = fixed_fastener_tolerance(governing_hole, fastener)
     else:
         raise ValueError(f"condition must be 'floating' or 'fixed', got {condition!r}")
 
@@ -99,7 +114,10 @@ def fastener_assembles(
         detail={
             "allowable_tol": allowable,
             "worst_applied_tol": worst,
-            "hole_mmc": hole_a.mmc,
+            "governing_hole": governing_label,
+            "governing_hole_mmc": governing_hole.mmc,
+            "hole_a_mmc": hole_a.mmc,
+            "hole_b_mmc": hole_b.mmc,
             "fastener_mmc": fastener.mmc,
         },
     )

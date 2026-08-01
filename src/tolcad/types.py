@@ -64,7 +64,14 @@ class FeatureOfSize:
 class Verdict:
     """Result of a functional check.
 
-    margin > 0 means assembly is guaranteed, in mm of slack.
+    margin's unit depends on the tier that produced it:
+    - Tier 1 (virtual_condition, floating_fastener, fixed_fastener): margin is
+      in mm of slack. margin > 0 means assembly is guaranteed exactly.
+    - Tier 2 (iso_fit / Monte Carlo): margin is a clearance YIELD in [0, 1],
+      the fraction of sampled part pairs that clear. It is NOT millimetres.
+      assembles is True only when margin == 1.0 (full yield).
+    These two units are not comparable; code that consumes `margin` across
+    tiers (e.g. thresholding against an epsilon in mm) must not mix them.
     """
 
     assembles: bool

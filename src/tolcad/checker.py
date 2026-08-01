@@ -47,7 +47,7 @@ def check(mate: dict) -> Verdict:
         return clearance_yield(
             hole,
             shaft,
-            n=mate.get("n", 10_000),
+            n=mate.get("n", 100_000),
             seed=mate.get("seed", 0),
             distribution=mate.get("distribution", "normal"),
         )

@@ -114,6 +114,32 @@ def test_unknown_condition_rejected():
         fastener_assembles(hole, hole, M8_BOLT, condition="press")
 
 
+def test_argument_order_does_not_change_verdict_for_asymmetric_hole_sizes():
+    """C1 regression: swapping hole_a/hole_b must not change the verdict when the
+    holes differ in SIZE (not just position_tol). The allowable tolerance must
+    always be computed from the smaller (governing) hole, regardless of which
+    argument position it is passed in.
+
+    Ø8.5 and Ø8.05 holes, both position_tol 0.3, through an M8 bolt (mmc 8.0):
+    the smaller (Ø8.05) hole governs, allowable = 8.05 - 8.0 = 0.05, so margin
+    = 0.05 - 0.3 = -0.25 and the joint does not assemble, regardless of order.
+    """
+    big = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.3)
+    tight = FeatureOfSize(8.05, 0.0, 0.2, INTERNAL, position_tol=0.3)
+
+    v_big_first = fastener_assembles(big, tight, M8_BOLT, condition="floating")
+    v_tight_first = fastener_assembles(tight, big, M8_BOLT, condition="floating")
+
+    assert v_big_first.assembles == v_tight_first.assembles
+    assert v_big_first.assembles is False
+    assert v_big_first.margin == pytest.approx(v_tight_first.margin)
+    assert v_big_first.margin == pytest.approx(-0.25)
+
+    # The governing (smaller) hole must be recorded regardless of argument order.
+    assert v_big_first.detail["governing_hole_mmc"] == pytest.approx(8.05)
+    assert v_tight_first.detail["governing_hole_mmc"] == pytest.approx(8.05)
+
+
 def test_rejects_external_hole_b():
     """hole_b must be validated as INTERNAL, not silently ignored."""
     hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)

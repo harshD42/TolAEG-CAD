@@ -1,5 +1,6 @@
+import numpy as np
 import pytest
-from tolcad.reliability import verdict_stability
+from tolcad.reliability import _perturb, verdict_stability
 
 HOLE = {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.1}
 BOLT = {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0}
@@ -99,23 +100,75 @@ def test_zero_denominator_is_distinguishable_from_verified_stability():
     assert result_stable.excluded == 0
 
 
-def test_aliasing_is_handled_correctly():
-    """Verify that hole_a and hole_b are each perturbed exactly once.
+class _CountingRNG:
+    """Wraps a real Generator and counts calls to `.uniform()`.
 
-    When hole_a and hole_b reference the same dict, copy.deepcopy preserves the alias.
-    The _perturb function must track seen dict ids to avoid double-perturbing.
+    Lets a test observe how many perturbation draws `_perturb` actually makes,
+    which is the only way to directly falsify a reinstated aliasing bug (a
+    bug that double-perturbs an aliased dict does not change *whether* the
+    function runs, only *how many draws it consumes* and therefore the
+    resulting values).
     """
-    # This test implicitly exercises the aliasing fix: if hole_a and hole_b were
-    # perturbed twice each, the perturbation magnitude would be doubled, and
-    # we'd see different results. The fact that test_positive_control works
-    # verifies this is correct (double perturbation would make flips more likely).
-    # This explicit test documents the behavior.
-    hole = {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.1}
-    mate_aliased = {"type": "floating_fastener", "hole_a": hole, "hole_b": hole,
-                    "fastener": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0}}
 
-    # Run with fixed aliasing: single perturbation of position_tol
-    result = verdict_stability([mate_aliased], epsilon=1e-6, seed=123)
-    # With correct handling, large margins stay stable
-    assert result.tested <= 1  # Either tested or excluded
-    # The important thing is that the function runs correctly (no double-perturbation bug)
+    def __init__(self, real_rng: np.random.Generator) -> None:
+        self._real = real_rng
+        self.calls = 0
+
+    def uniform(self, lo: float, hi: float) -> float:
+        self.calls += 1
+        return self._real.uniform(lo, hi)
+
+
+def test_aliasing_is_handled_correctly():
+    """Verify that hole_a and hole_b are each perturbed exactly once when aliased.
+
+    When hole_a and hole_b reference the same dict, copy.deepcopy preserves the
+    alias. `_perturb` must track seen dict ids to avoid double-perturbing.
+
+    A prior version of this test asserted only `result.tested <= 1`, which is
+    trivially true for a single mate regardless of whether the aliasing bug is
+    present or not — it would pass even with the bug reinstated. This version
+    counts the actual number of perturbation draws consumed, which differs
+    measurably (7 vs 11) between the aliased case and a non-aliased control
+    with equivalent content, and so is falsifiable.
+    """
+    hole = {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.1}
+    fastener = {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0}
+
+    # hole_a and hole_b are the SAME dict object.
+    mate_aliased = {"type": "floating_fastener", "hole_a": hole, "hole_b": hole,
+                    "fastener": dict(fastener)}
+    # Control: hole_a and hole_b are distinct dicts with identical content.
+    mate_control = {"type": "floating_fastener", "hole_a": dict(hole),
+                    "hole_b": dict(hole), "fastener": dict(fastener)}
+
+    rng_aliased = _CountingRNG(np.random.default_rng(0))
+    _perturb(mate_aliased, epsilon=1e-6, rng=rng_aliased)
+
+    rng_control = _CountingRNG(np.random.default_rng(0))
+    _perturb(mate_control, epsilon=1e-6, rng=rng_control)
+
+    # hole has 4 perturbable fields (nominal, lower_dev, upper_dev, position_tol);
+    # fastener has 3 (no position_tol).
+    assert rng_aliased.calls == 4 + 3, (
+        "aliased hole_a/hole_b must be perturbed exactly once (shared object), "
+        f"got {rng_aliased.calls} draws"
+    )
+    assert rng_control.calls == 4 + 4 + 3, (
+        "distinct hole_a/hole_b must each be perturbed independently, "
+        f"got {rng_control.calls} draws"
+    )
+
+
+def test_iso_fit_mate_is_rejected():
+    """C2: iso_fit (Tier 2) mates must be rejected, not silently scored stable.
+
+    Tier 2 margin is a Monte Carlo clearance yield in [0, 1], not millimetres,
+    and iso_fit mates have no perturbable sub-dicts (nominal/designation/n/seed
+    are top-level scalars), so _perturb would be a provable no-op on them.
+    verdict_stability must raise rather than half-support this case.
+    """
+    mate = {"type": "iso_fit", "nominal": 20.0, "designation": "H7/p6",
+            "n": 1_000, "seed": 0}
+    with pytest.raises(ValueError, match="Tier 1"):
+        verdict_stability([mate], epsilon=1e-6, seed=0)
