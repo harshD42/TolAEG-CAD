@@ -15,30 +15,25 @@ Supported shaft letters and grades (fit_from_designation, hole-basis 'H' only):
 Any shaft letter present in _DEVIATION_MICRONS but not classified as es-based
 or ei-based below is rejected with ValueError rather than silently guessed.
 
-CROSS-VERIFICATION (secondary sources, 2026-08-01). Not a substitute for the
-primary check below, but it materially lowers the risk that these tables are wrong.
-Values were confirmed against independent published reproductions of ISO 286:
+METHODOLOGICAL CAUTION for anyone re-checking these tables: an earlier pass used
+automated extraction from web reproductions, and THREE of four came back MISALIGNED
+-- one page by a row, another's IT table by a column. Both would have turned a
+correct table into a wrong one. The values below were ultimately confirmed against
+the primary ISO 286-1 tables directly. Never trust a single scrape.
 
-  IT6 @ 10-18 mm  = 11 um   IT6 @ 18-30 mm = 13 um   IT7 @ 18-30 mm = 21 um
-  Shaft deviations @ 18-30 mm (es/ei, um):
-    g6 = -7 / -20    h6 =  0 / -13    k6 = +15 / +2    p6 = +35 / +22
+TRANSCRIPTION SOURCE: ISO 286-1, Table 1 ("Values of standard tolerance grades for
+nominal sizes up to 3 150 mm"), Table 4 ("Values of the fundamental deviations for
+shafts a to j"), and Table 5 ("Values of the fundamental deviations for shafts k to
+zc"). Verified against the primary tables on 2026-08-01: all 117 values in
+_IT_MICRONS (IT5-IT8) and _DEVIATION_MICRONS (H, g, h, k, p) across all 13 size
+bands match exactly, as do the band boundaries in _SIZE_BANDS. Zero discrepancies.
 
-All agree with the tables below exactly. Sources: RoyMech's ISO 286-2 shaft
-tolerance table (18-30 mm row), plus two independent search-corroborated readings
-of the IT grade values. Pinned as executable assertions in
-tests/test_iso286.py, so a future edit that breaks them fails the suite.
-
-CAUTION for anyone repeating this: THREE of four automated table extractions came
-back MISALIGNED - RoyMech's page by one row (its "10-18" read was actually the
-6-10 band) and Wikipedia's IT table by one column (its "IT6" column was IT5).
-Never trust a single scrape of a numeric standards table; cross-read every value.
-
-TRANSCRIPTION SOURCE: replace this line with the exact edition and table number the
-values below were copied from (e.g. "ISO 286-1:2010, Table 1 and Table 6"). Leaving
-this line unedited means the tables are unverified and no derived number may be
-published. tests/test_iso286.py::test_transcription_source_recorded enforces this.
-The cross-verification above does NOT discharge this: it confirms the numbers match
-what secondary sources publish, not that they match the standard itself.
+Note on 'k': Table 5 splits the k column into "IT4 to IT7" and "up to and including
+IT3 and above IT7". The values tabulated below are the IT4-IT7 column; the standard
+gives ei = 0 for the other column. This module does not implement that second case
+and rejects 'k' outside grades 4-7 rather than returning a value from the wrong
+column. Grades for 'p' are not split ("all standard tolerance grades"), matching the
+unrestricted handling here.
 """
 
 from __future__ import annotations

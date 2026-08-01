@@ -56,12 +56,9 @@ def floating_fastener_tolerance(
 
     T = H - F, where H is hole MMC and F is fastener MMC.
 
-    CROSS-VERIFIED (secondary sources, 2026-08-01): multiple independent published
-    references give the floating fastener formula as H = F + T, attributed to
-    ASME Y14.5-1994 Appendix B (section B3) - algebraically identical to T = H - F.
-    Source: ASME Y14.5 floating fastener formula. CITATION PENDING HUMAN VERIFICATION.
-    (Cross-verification confirms the formula as widely republished; it does not
-    confirm it against the standard itself, which is paywalled.)
+    Source: ASME Y14.5-2018, Nonmandatory Appendix B, section B-3 "Floating Fastener
+    Case". Verified against the primary text 2026-08-01. Symbols per B-2.1.
+    Reproduces B-3's worked example exactly (F=6, H=6.44 -> T=0.44 per part).
     """
     _check_fastener_pair(hole, fastener)
     return hole.mmc - fastener.mmc
@@ -74,20 +71,19 @@ def fixed_fastener_tolerance(hole: FeatureOfSize, fastener: FeatureOfSize) -> fl
     because the fastener cannot shift in the part that constrains it.
 
     ASSUMES A PROJECTED TOLERANCE ZONE. This is load-bearing, not a footnote.
-    Cross-verified 2026-08-01: published references give the fixed fastener
-    condition with unequal tolerances as
-        projected zone:      H = F + T1 + T2          <- what this module implements
-        NOT projected:       H = F + T1 * (1 + 2P/D)  <- a different, larger formula
-    where P is the maximum thickness of the part carrying the clearance hole and D
-    the minimum thread depth (or thickness of the part restraining the fastener).
-    Those same references note the NON-projected case is the more common one on real
-    drawings. Because this project's procedural generator controls the tolerance
-    schema, it must emit projected zones explicitly; consuming a real-world drawing
-    that lacks one and applying this formula would be OPTIMISTIC (unsafe).
+    B-4 is titled "...When Projected Tolerance Zone Is Used" and warns the formula
+    does not give enough clearance when tapped or tight-fitting holes are out of
+    square. B-5 covers that case instead:
+        H = F + T1 + T2 * (1 + 2P/D)
+    with P the maximum projection of the fastener and D the minimum depth of
+    engagement. The multiplier applies to T2, the tapped hole's tolerance -- NOT to
+    T1. This module implements B-4 only, so applying it to a drawing without a
+    projected zone is OPTIMISTIC (unsafe); the generator must emit projected zones.
 
-    Source: ASME Y14.5 fixed fastener formula. CITATION PENDING HUMAN VERIFICATION.
-    (Cross-verification confirms the formula as widely republished; it does not
-    confirm it against the standard itself, which is paywalled.)
+    Source: ASME Y14.5-2018, Nonmandatory Appendix B, section B-4 "Fixed Fastener
+    Case When Projected Tolerance Zone Is Used". Verified against the primary text
+    2026-08-01. Reproduces B-4's worked examples exactly (F=6, H=6.44 -> T=0.22 per
+    part; and the unequal split 2T=0.44 -> T1=0.18, T2=0.26).
     """
     _check_fastener_pair(hole, fastener)
     return (hole.mmc - fastener.mmc) / 2.0

@@ -97,19 +97,23 @@ def test_h7k8_rejects_unsupported_k_grade():
         fit_from_designation(20.0, "H7/k8")
 
 
-@pytest.mark.xfail(
-    reason="Fails until table values are verified against print. Do not delete.",
-    strict=False,
-)
 def test_transcription_source_recorded():
-    """Gate A guard: table values must cite a real published source."""
+    """Gate A guard: table values must cite a real published source.
+
+    Was an xfail while the placeholder stood. The tables were verified against
+    the primary ISO 286-1 Tables 1, 4 and 5 on 2026-08-01 (all 117 values, zero
+    discrepancies), so this is now a plain regression test: it fails if anyone
+    reintroduces the placeholder or strips the citation.
+    """
     import tolcad.iso286 as mod
 
     doc = mod.__doc__ or ""
     assert "replace this line" not in doc, (
-        "ISO 286 tables are still unverified — record the edition and table number"
+        "ISO 286 tables are unverified again — record the edition and table number"
     )
-    assert "ISO 286" in doc
+    assert "ISO 286-1" in doc
+    for table in ("Table 1", "Table 4", "Table 5"):
+        assert table in doc, f"citation lost its reference to {table}"
 
 
 # --- Cross-verification against published secondary sources (2026-08-01) -------
