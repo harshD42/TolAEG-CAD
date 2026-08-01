@@ -131,6 +131,8 @@ _CRITICAL_GUARDS = frozenset({
     # instances covered by nothing until this was caught in review.
     "reliability-perturbation-neutered",
     "reliability-perturbation-tripled",
+    "tapped-hole-upper-dev-nonzero",
+    "case-sensitive-guard-uppercased",
 })
 
 
@@ -172,3 +174,29 @@ def test_both_expectation_directions_are_exercised():
 def test_every_registry_name_is_unique():
     names = [m.name for m in REGISTRY]
     assert len(names) == len(set(names))
+
+
+def test_every_registry_entry_names_a_single_test():
+    """A whole-file selector can pass because some unrelated test failed."""
+    for m in REGISTRY:
+        assert "::" in m.test, (
+            f"{m.name} targets '{m.test}', a whole file. Name the specific test, "
+            f"or the entry can be satisfied by an unrelated failure."
+        )
+
+
+def test_text_targets_have_a_known_safe_suffix():
+    """A line-ending-sensitive target declared as text fails for the wrong reason.
+
+    _count_and_apply normalises CRLF->LF across the whole file for text targets.
+    That is harmless for Python and Markdown; it is not harmless in general.
+    """
+    safe = {".py", ".md", ".toml", ".yml", ".yaml", ".cfg"}
+    for m in REGISTRY:
+        if m.binary:
+            continue
+        suffix = pathlib.Path(m.target).suffix
+        assert suffix in safe, (
+            f"{m.name} targets {m.target} as TEXT, but {suffix} is not in the "
+            f"known-safe set {sorted(safe)}. Declare it binary=True."
+        )

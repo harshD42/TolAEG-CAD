@@ -380,4 +380,33 @@ REGISTRY: tuple[DeclaredMutation, ...] = (
             "certifies the control against seed choice in general."
         ),
     ),
+    DeclaredMutation(
+        name="tapped-hole-upper-dev-nonzero",
+        target="src/tolcad/gen/features.py",
+        find="_TAPPED_HOLE_UPPER_DEV_MM = 0.2",
+        replace="_TAPPED_HOLE_UPPER_DEV_MM = 0.9",
+        test="tests/gen/test_features.py::test_tapped_hole_is_always_smaller_than_its_fastener",
+        expect="fail",
+        why=(
+            "The pre-registration names this and _FASTENER_LOWER_DEV_MM as the two "
+            "declared-inert untraced numbers. Its twin has an executed guard and "
+            "this did not, so we would be publishing two claims of which only one "
+            "was watched failing. 0.9 pushes the M3 tapped hole (2.5 + 0.9 = 3.4) "
+            "past the M3 fastener at 3.0."
+        ),
+    ),
+    DeclaredMutation(
+        name="case-sensitive-guard-uppercased",
+        target="src/tolcad/gen/features.py",
+        find="were checked against the primary standard",
+        replace="were NOT been checked against the primary standard",
+        test="tests/gen/test_features.py::test_features_module_cites_its_primary_sources",
+        expect="fail",
+        why=(
+            "Historical instance 10. The original guard was case-sensitive and a "
+            "stale caveat written 'NOT' slipped past it. The guard now lowercases "
+            "before matching; this entry is what proves that, and the design spec "
+            "listed instance 10 among Layer 3's seven while no entry existed."
+        ),
+    ),
 )
