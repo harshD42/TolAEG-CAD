@@ -11,3 +11,6 @@ results/
 # Literature PDFs: ~617MB, fully reproducible via scripts/fetch_literature.sh.
 # The index and fetch log ARE tracked, so the corpus stays auditable.
 papers/literature/*.pdf
+
+# NIST PMI conformance suite: ~14MB, reproducible via scripts/fetch_nist_pmi.py
+data/nist_pmi/
