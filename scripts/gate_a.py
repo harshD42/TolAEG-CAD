@@ -53,6 +53,19 @@ ISO286_PLACEHOLDER_MARKER = "replace this line"
 # With _RELIABILITY_EPSILON = 1e-4, the exclusion boundary is 2e-4 and the
 # targeted sensitive band is roughly [2e-4, 5e-4]. Sensitive-band mates below
 # are constructed with margin ~= +-3.5e-4, comfortably inside that band.
+#
+# CONSTRUCTION RULE (frozen 2026-08-01, spec section 7 correction).
+# Each sensitive-band mate has EXACTLY ONE binding part at +-3.5e-4; every other
+# part in that mate is slack at >=10x the band. Without this rule the repair is
+# under-determined -- two reviewers produced 0.9967 and 0.9971 from different
+# constructions of the same stated intent. The rule determines the number.
+#
+# The rule exists because ASME B-3 (y14_5.py) is PER PART -- the floating-fastener
+# margin is min(margin_a, margin_b), never their sum. Two mates below were once
+# written as though it were a sum; one of them therefore sat at exactly 0.0, fell
+# inside the exclusion band, and was silently dropped (tested=11, excluded=1). The
+# rule is asserted, not trusted, by tests/test_gate_a.py::
+# test_every_sensitive_mate_has_exactly_one_binding_part.
 _RELIABILITY_MATES: list[dict] = [
     # --- far-from-boundary (regime 1) ---
     {
@@ -105,17 +118,23 @@ _RELIABILITY_MATES: list[dict] = [
         "hole": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.25035},
     },
     {
-        # margin = (8.5-8.0)+(8.5-8.0) - (0.5+0.49965) = 1.0 - 0.99965 = +3.5e-4
+        # B-3 is PER PART: margin = min(H_a-F-T_a, H_b-F-T_b), NOT their sum.
+        # Construction rule: exactly one binding part at +3.5e-4; the other slack
+        # at >=10x the band. hole_a binds; hole_b is slack.
+        #   margin_a = (8.5-8.0) - 0.49965 = +3.5e-4   <- binding
+        #   margin_b = (8.5-8.0) - 0.49650 = +3.5e-3   <- slack, 10x
         "type": "floating_fastener",
-        "hole_a": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.5},
-        "hole_b": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.49965},
+        "hole_a": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.49965},
+        "hole_b": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.49650},
         "fastener": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
     },
     {
-        # margin = (8.5-8.0)+(8.5-8.0) - (0.5+0.50035) = 1.0 - 1.00035 = -3.5e-4
+        # B-3 is PER PART: margin = min(H_a-F-T_a, H_b-F-T_b), NOT their sum.
+        #   margin_a = (8.5-8.0) - 0.50035 = -3.5e-4   <- binding
+        #   margin_b = (8.5-8.0) - 0.49650 = +3.5e-3   <- slack
         "type": "floating_fastener",
-        "hole_a": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.5},
-        "hole_b": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.50035},
+        "hole_a": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.50035},
+        "hole_b": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.49650},
         "fastener": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
     },
     {

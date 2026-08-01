@@ -231,8 +231,25 @@ configs. Ablations are embarrassingly parallel; results synced manually.
   pre-registered seed set (0–199) with a bootstrap CI and the fraction of seeds passing, and
   compare the mean to 0.95. Disclosed openly because the single-seed 1.0000 currently printed
   by `scripts/gate_a.py` is not a stable property of the checker.
+- *2026-08-01f (pre-data):* The Gate A reliability mate set was repaired. Two
+  sensitive-band mates were constructed as though the floating-fastener margin
+  were the SUM of both parts' slack; y14_5 implements ASME B-3's per-part
+  `min()`. One mate therefore sat at exactly 0.0, fell inside the exclusion
+  band, and was silently dropped, so the set measured `tested=11, excluded=1`.
+  The correction 2026-08-01e text stating "at 12 tested mates the only values
+  reachable near the threshold are 1.0000 and 0.9167" was consequently FALSE:
+  eleven were tested and the reachable values were {0.9091, 1.0}. Both mates are
+  rebuilt under a construction rule — exactly one binding part per mate at
+  ±3.5e-4, all others slack at ≥10× — which determines the result rather than
+  leaving it under-specified. Measured after repair: `tested=12, excluded=0`,
+  mean **0.9975** over the unchanged 200-seed set (95% bootstrap CI
+  [0.9954, 0.9992]), fraction of seeds ≥ 0.95 = 0.9700, and the reachable
+  per-seed values are once again exactly {0.9167, 1.0000} — so 01e's sentence
+  is now true of the instrument it describes. Neither the 0.95 threshold, the
+  seed set, nor the exclusion band was touched. Found by adversarial review
+  before any data was generated.
 
-All five predate any experimental data. **No post-data threshold change is permitted.**
+All six predate any experimental data. **No post-data threshold change is permitted.**
 
 **Also note for §8:** the sensitive-band margin magnitude used by the reliability mate set
 (3.5e-4, mid-band between 2ε and 5ε) was chosen after the seed was pinned. It is a free
