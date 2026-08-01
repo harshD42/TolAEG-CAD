@@ -1,0 +1,31 @@
+[project]
+name = "tolcad"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# pythonpath includes both "src" (the installed package) and "." (repo root).
+# validation/ sits deliberately outside the installed package at the repo root,
+# permitting optional SolidWorks cross-checks without polluting core dependencies.
+# Because pythonpath now includes ".", the runtime defence (ModuleNotFoundError when
+# a core module tries `import validation`) is removed. The AST lint in
+# tests/test_architecture.py is now the sole enforcement of core-vs-validation isolation.
+# That lint MUST NOT be weakened; it catches direct imports, bare relative imports,
+# dynamic imports (importlib, __import__), and obfuscated calls (exec, eval).
+pythonpath = ["src", "."]
+addopts = "--strict-markers"
+markers = [
+    "slow: Monte Carlo convergence checks (deselect with -m 'not slow')",
+]
