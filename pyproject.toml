@@ -29,4 +29,5 @@ pythonpath = ["src", "."]
 addopts = "--strict-markers"
 markers = [
     "slow: Monte Carlo convergence checks (deselect with -m 'not slow')",
+    "mutation: declared-mutation experiments; each spawns a pytest subprocess",
 ]
