@@ -16,8 +16,15 @@ _LARGEST_RADIUS_MM = max(
 # Cruder second floors, spelled as numbers so zeroing a production constant is
 # caught even if the derivation above is edited. Recompute these whenever the
 # clearance-hole table, its tolerance grades, or the difficulty ladder changes.
-_LITERAL_WALL_FLOOR_MM = 3.78
-_LITERAL_EDGE_FLOOR_MM = 1.89
+#
+# ROUNDED UP, DELIBERATELY. The derived requirements are 3.78 and 1.89; these
+# literals are 3.8 and 1.9 so they sit strictly ABOVE them. That is the whole
+# point of a second floor -- it must hold even if the derivation is mis-derived,
+# which it cannot do if it merely equals the derivation. An earlier pass set them
+# to exactly 3.78 / 1.89 and the edge literal then landed a ulp BELOW its derived
+# requirement (1.89 < 1.8900000000000001), passing only on the 1e-9 epsilon.
+_LITERAL_WALL_FLOOR_MM = 3.8
+_LITERAL_EDGE_FLOOR_MM = 1.9
 
 
 def test_largest_clearance_hole_needs_more_than_the_old_hardcoded_pitch():
@@ -147,13 +154,13 @@ def test_the_margin_constants_are_actually_large_enough():
     radius can grow another 0.215 mm. Two neighbours leaning together
     therefore consume 3.78 mm; one leaning at an edge consumes 1.890 mm.
 
-    _LITERAL_WALL_FLOOR_MM / _LITERAL_EDGE_FLOOR_MM (3.78 / 1.89) are that same
-    arithmetic spelled out as fixed numbers, not a looser margin above it --
-    unlike the 3.7 / 1.85 figures they replace, which were rounded up from the
-    pre-ISO-273 axis offset and had quietly drifted below the current
-    requirement without either layout test noticing. See
-    test_the_literal_floor_is_not_below_the_derived_one for why that gap
-    matters.
+    _LITERAL_WALL_FLOOR_MM / _LITERAL_EDGE_FLOOR_MM (3.8 / 1.9) are that same
+    arithmetic rounded UP to fixed numbers, so they are a conservative floor
+    that holds even if the derivation is mis-derived -- unlike the 3.7 / 1.85
+    figures they replace, which were rounded up from the pre-ISO-273 axis
+    offset and had quietly drifted below the current requirement without either
+    layout test noticing. See test_the_literal_floors_are_not_below_the_derived_ones
+    for why that gap matters.
 
     Ø25 iso_fit bores are wider than Ø14.5 and do not change any of this: they
     carry position_tol 0.0 and an IT7-class band (~0.01 mm on the radius), so
@@ -169,8 +176,8 @@ def test_the_margin_constants_are_actually_large_enough():
     )
 
 
-def test_the_literal_floor_is_not_below_the_derived_one():
-    """The literal is a second, cruder floor -- it must not undercut the real one.
+def test_the_literal_floors_are_not_below_the_derived_ones():
+    """The literals are a second, cruder floor -- they must not undercut the real one.
 
     When clearance holes moved from a flat +0.2 to their ISO 273 series grades,
     the worst-case growth at M12 coarse went from 0.100 to 0.215 mm and the
@@ -179,10 +186,22 @@ def test_the_literal_floor_is_not_below_the_derived_one():
     the literal passed too -- it had simply stopped being a floor, and would
     have accepted a _MIN_WALL_MM of 3.75 that is genuinely too small.
 
-    This test is what notices next time.
+    BOTH literals are checked here, not just the wall one. An earlier version of
+    this test guarded the wall literal alone and left the edge literal compared
+    only against the production constant -- the identical pattern that let the
+    wall literal go stale. The edge literal was in fact already a ulp below its
+    derived requirement (1.89 vs 1.8900000000000001) when that gap was found.
+
+    This test is what notices next time, for either floor.
     """
-    required = 2.0 * _worst_case_radial_excursion_mm()
-    assert _LITERAL_WALL_FLOOR_MM >= required - 1e-9, (
-        f"the literal floor {_LITERAL_WALL_FLOOR_MM} is below the derived "
-        f"requirement {required:.4f}; recompute it from the tables"
+    required_wall = 2.0 * _worst_case_radial_excursion_mm()
+    required_edge = _worst_case_radial_excursion_mm()
+
+    assert _LITERAL_WALL_FLOOR_MM >= required_wall - 1e-9, (
+        f"the literal wall floor {_LITERAL_WALL_FLOOR_MM} is below the derived "
+        f"requirement {required_wall:.4f}; recompute it from the tables"
+    )
+    assert _LITERAL_EDGE_FLOOR_MM >= required_edge - 1e-9, (
+        f"the literal edge floor {_LITERAL_EDGE_FLOOR_MM} is below the derived "
+        f"requirement {required_edge:.4f}; recompute it from the tables"
     )

@@ -24,12 +24,18 @@ in the >10-18 mm band: +0.43 mm diameter, +0.215 mm radius. One feature's edge
 can therefore reach 1.675 + 0.215 = 1.890 mm past where nominal geometry puts
 it.
 
+Headroom below is quoted as excess over the REQUIREMENT, (constant - required)
+/ required, for both margins. (Excess over the constant is a different, smaller
+number -- 5.5% for the wall -- and mixing the two is how the figure in this
+docstring was wrong before.)
+
   _MIN_WALL_MM = 4.0   Two neighbours leaning toward each other consume at
                        worst 1.675 + 1.675 + 0.215 + 0.215 = 3.78 mm, so 4.0 mm
                        of nominal material between them still leaves a
-                       ligament (5.5% headroom).
+                       ligament: (4.0 - 3.78) / 3.78 = 5.8% headroom.
   _EDGE_MARGIN_MM = 5.0  A single feature leaning at an edge consumes at worst
-                       1.675 + 0.215 = 1.890 mm, so 5.0 mm leaves ~2.6x headroom.
+                       1.675 + 0.215 = 1.890 mm, so 5.0 mm gives
+                       (5.0 - 1.890) / 1.890 = 165% headroom.
 
 Ø14.5 (M12 loose) IS NOT THE WIDEST FEATURE, and that is fine. An iso_fit mate
 is laid out at its own nominal, which the sampler draws up to Ø25, so Ø25 is
@@ -47,9 +53,11 @@ tests/gen/test_layout.py re-derives the 3.78 / 1.890 requirement from
 features.clearance_hole_for (ISO 273 series grade included) and
 sampler._TOL_FRACTION_RANGE at test time, so raising the ladder or widening the
 clearance table cannot leave these two constants quietly too small. A second,
-cruder pair of literal floors in that file (_LITERAL_WALL_FLOOR_MM,
-_LITERAL_EDGE_FLOOR_MM) is checked against the same derivation, so it cannot
-drift stale the way it did when clearance holes moved onto ISO 273.
+cruder pair of literal floors in that file (_LITERAL_WALL_FLOOR_MM = 3.8,
+_LITERAL_EDGE_FLOOR_MM = 1.9 -- the derived 3.78 / 1.890 rounded UP, so they
+stay conservative rather than merely equal) is checked against the same
+derivation, BOTH of them, so neither can drift stale the way the wall one did
+when clearance holes moved onto ISO 273.
 """
 
 from __future__ import annotations
