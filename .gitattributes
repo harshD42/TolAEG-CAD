@@ -1,0 +1,5 @@
+# STEP files are redistributed fixtures that must be byte-identical to their
+# source, regardless of the cloning machine's core.autocrlf setting. Without
+# this, git's line-ending normalization silently rewrites CRLF -> LF on commit,
+# breaking the exact-byte-count claim in tests/fixtures/NIST-PROVENANCE.md.
+*.stp binary
