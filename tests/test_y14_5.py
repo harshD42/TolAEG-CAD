@@ -1,5 +1,5 @@
 import pytest
-from tolcad.types import FeatureOfSize, FeatureType
+from tolcad.types import EPS, FeatureOfSize, FeatureType
 from tolcad.y14_5 import (
     bonus_tolerance,
     fastener_assembles,
@@ -111,6 +111,8 @@ def test_asymmetric_holes_worse_on_hole_a():
     verdict = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
     assert verdict.assembles is False
     assert verdict.margin == pytest.approx(-0.1)
+    # hole_a has the smaller (worse) individual margin, so it governs.
+    assert verdict.detail["governing_part"] == "hole_a"
 
 
 def test_asymmetric_holes_worse_on_hole_b():
@@ -127,6 +129,8 @@ def test_asymmetric_holes_worse_on_hole_b():
     verdict = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
     assert verdict.assembles is False
     assert verdict.margin == pytest.approx(-0.1)
+    # Now hole_b has the smaller (worse) individual margin, so it governs.
+    assert verdict.detail["governing_part"] == "hole_b"
 
 
 def test_floating_fully_swap_invariant():
@@ -450,3 +454,157 @@ def test_actual_size_outside_limits_rejected():
     hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL)
     with pytest.raises(ValueError, match="outside"):
         bonus_tolerance(hole, 8.9)
+
+
+# --- Mutation-score triage additions (cosmic-ray, 2026-08-01) -----------------
+#
+# The tests above only ever exercised bonus_tolerance/tolerance formulas at
+# values where a wrong operator happens to coincide with the right one (e.g.
+# 0.5/2.0 == 0.5**2.0, or where hole.mmc is always comfortably above
+# fastener.mmc so `-` and `%` agree). These additions pick values that force
+# genuine divergence, or exercise branches (equal-mmc boundary, EPS boundary,
+# detail["governing_part"]) nothing above touched at all.
+
+
+def test_bonus_tolerance_rejects_actual_size_below_min():
+    """No existing test exercises the LOWER bound of the validity guard --
+    test_actual_size_outside_limits_rejected only probes above max_size. A
+    mutant that replaces `min_size - EPS` with `min_size * EPS` (or % / **)
+    makes the lower bound collapse to ~0, so any small actual_size would
+    wrongly be accepted; this catches it from below.
+    """
+    hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL)
+    with pytest.raises(ValueError, match="outside"):
+        bonus_tolerance(hole, 8.3)
+
+
+def test_bonus_tolerance_accepts_lower_bound_exactly_at_epsilon():
+    """min_size - EPS is INCLUSIVE (`<=`); a mutant narrowing it to `<` would
+    reject this exact boundary value instead of computing a (small) bonus.
+    """
+    hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL)
+    assert bonus_tolerance(hole, hole.min_size - EPS) == pytest.approx(EPS, abs=1e-12)
+
+
+def test_bonus_tolerance_accepts_upper_bound_exactly_at_epsilon():
+    """max_size + EPS is INCLUSIVE (`<=`); a mutant narrowing it to `<` would
+    reject this exact boundary value instead of computing the bonus.
+    """
+    hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL)
+    assert bonus_tolerance(hole, hole.max_size + EPS) == pytest.approx(0.2 + EPS, abs=1e-12)
+
+
+def test_floating_fastener_tolerance_beyond_double_the_fastener_mmc():
+    """H=7, F=3: H - F = 4, but H % F = 1 (floor(7/3)=2, 7-2*3=1). The
+    canonical worked example (H=8.5, F=8.0) never exceeds 2x, so subtraction
+    and modulo happen to be indistinguishable there.
+    """
+    hole = FeatureOfSize(10.0, 0.0, 0.0, INTERNAL)
+    fastener = FeatureOfSize(3.0, 0.0, 0.0, EXTERNAL)
+    assert floating_fastener_tolerance(hole, fastener) == pytest.approx(7.0)
+
+
+def test_fixed_fastener_tolerance_halves_not_squares_the_clearance():
+    """0.5/2.0 == 0.5**2.0 == 0.25 by coincidence in the canonical worked
+    example (CLEARANCE_HOLE/M8_BOLT), which is exactly why that mutant
+    survived. 1.0/2.0=0.5 != 1.0**2.0=1.0 forces the two apart, and 9%8=1
+    forces subtraction apart from modulo too.
+    """
+    hole = FeatureOfSize(9.0, 0.0, 0.0, INTERNAL)
+    fastener = FeatureOfSize(8.0, 0.0, 0.0, EXTERNAL)
+    assert fixed_fastener_tolerance(hole, fastener) == pytest.approx(0.5)
+
+
+def test_fastener_assembles_clearance_values_beyond_double_fastener_mmc():
+    """detail["clearance_a"]/["clearance_b"] must be hole.mmc - fastener.mmc,
+    not hole.mmc % fastener.mmc. Chosen so hole_a.mmc/hole_b.mmc each exceed
+    2x the fastener mmc, where modulo and subtraction diverge sharply.
+    """
+    fastener = FeatureOfSize(3.0, 0.0, 0.0, EXTERNAL)
+    hole_a = FeatureOfSize(10.0, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    hole_b = FeatureOfSize(13.0, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    verdict = fastener_assembles(hole_a, hole_b, fastener, condition="floating")
+    assert verdict.detail["clearance_a"] == pytest.approx(7.0)
+    assert verdict.detail["clearance_b"] == pytest.approx(10.0)
+
+
+def test_governing_part_tie_breaks_to_hole_a():
+    """When both parts have bit-identical individual margins, the "<=" tie
+    -break in `"hole_a" if margin_a <= margin_b else "hole_b"` must land on
+    hole_a. Uses hole_a and hole_b built from the SAME feature so margin_a
+    and margin_b are computed from identical inputs (bit-identical, not
+    merely float-approx-equal from two different arithmetic paths).
+    """
+    hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.3)
+    verdict = fastener_assembles(hole, hole, M8_BOLT, condition="floating")
+    assert verdict.detail["governing_part"] == "hole_a"
+
+
+def test_floating_allows_hole_a_exactly_at_fastener_mmc():
+    """hole_a.mmc == fastener.mmc is the zero-clearance boundary case (the
+    fastener exactly fills the hole at MMC) -- legitimate, must NOT raise.
+    The guard is `hole_a.mmc < fastener.mmc`; a `<=` mutant would wrongly
+    reject this boundary. No existing test used an equal-mmc pair.
+    """
+    fastener = FeatureOfSize(6.0, 0.0, 0.0, EXTERNAL)
+    hole = FeatureOfSize(6.0, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    verdict = fastener_assembles(hole, hole, fastener, condition="floating")
+    assert verdict.detail["clearance_a"] == pytest.approx(0.0)
+    assert verdict.detail["clearance_b"] == pytest.approx(0.0)
+
+
+def test_vc_assembles_at_exact_epsilon_boundary():
+    """margin == -EPS exactly is the assembles/fails boundary (`>= -EPS`); a
+    mutant narrowing it to `>` would reject this exact boundary. Constructed
+    from 0 and EPS directly so the arithmetic is bit-exact, not merely close.
+    """
+    pin = FeatureOfSize(EPS, 0.0, 0.0, EXTERNAL)
+    hole = FeatureOfSize(0.0, 0.0, 0.0, INTERNAL)
+    verdict = vc_assembles(pin, hole)
+    assert verdict.margin == -EPS
+    assert verdict.assembles is True
+
+
+def test_fixed_fastener_assembles_at_exact_epsilon_boundary():
+    """Same boundary as above, through fastener_assembles' `>= -EPS` (a
+    separate call site from vc_assembles', so it needs its own mutant
+    coverage). Constructed so margin = 0 - EPS = -EPS bit-exactly.
+    """
+    fastener = FeatureOfSize(0.0, 0.0, 0.0, EXTERNAL)
+    hole_a = FeatureOfSize(0.0, 0.0, 0.0, INTERNAL, position_tol=EPS)
+    hole_b = FeatureOfSize(0.0, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    verdict = fastener_assembles(hole_a, hole_b, fastener, condition="fixed")
+    assert verdict.margin == -EPS
+    assert verdict.assembles is True
+
+
+# --- Equivalent mutants (documented, not killed) ------------------------------
+#
+# cosmic-ray's survivor list for y14_5.py also includes 16 mutants that are
+# genuinely equivalent -- no test can distinguish them because the mutated
+# expression cannot produce different observable behaviour, given invariants
+# the rest of the module already enforces:
+#
+# 1. EIGHT mutants replace `is`/`is not` with `==`/`!=` (or vice versa) on
+#    FeatureType comparisons, e.g. `feature.feature_type is FeatureType.EXTERNAL`
+#    -> `== FeatureType.EXTERNAL` (and the `is not`/`!=` pairs in
+#    vc_assembles, _check_fastener_pair, and fastener_assembles' hole_a/hole_b/
+#    fastener guards). FeatureType is a plain Enum with no custom __eq__, so
+#    its members compare equal only to themselves -- CPython enum members are
+#    singletons, making `is`/`is not` and `==`/`!=` produce identical results
+#    for every possible FeatureType value. There is no input that could make
+#    these disagree.
+#
+# 2. EIGHT mutants replace `condition == "floating"` / `condition == "fixed"`
+#    with `>=`, `<=`, or `is` against the same literal (in the governing_part
+#    detail expression, the hole_b feature-type guard, and the hole_b MMC
+#    guard). `fastener_assembles` validates `condition in ("floating",
+#    "fixed")` before any of these comparisons run, so `condition` can only
+#    ever be one of exactly those two strings at this point. For that
+#    restricted two-value domain: "fixed" < "floating" lexically (comparing
+#    "f-i-x" vs "f-l-o": 'i' < 'l'), so `>=`/`<=` against either literal agree
+#    with `==`/`!=` for both possible values; and "floating"/"fixed" are
+#    identifier-shaped literals that CPython interns identically between this
+#    module and any caller using the same literal, so `is` agrees with `==`
+#    too. A third value could break this, but the upstream guard forecloses
+#    that -- there's no way to reach these lines with anything else.

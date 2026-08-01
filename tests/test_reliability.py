@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from tolcad.reliability import _perturb, verdict_stability
+from tolcad.reliability import StabilityResult, _perturb, verdict_stability
+from tolcad.types import Verdict
 
 HOLE = {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.1}
 BOLT = {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0}
@@ -209,3 +210,135 @@ def test_iso_fit_mate_is_rejected():
             "n": 1_000, "seed": 0}
     with pytest.raises(ValueError, match="Tier 1"):
         verdict_stability([mate], epsilon=1e-6, seed=0)
+
+
+# --- Mutation-score triage additions (cosmic-ray, 2026-08-01) -----------------
+#
+# These target arithmetic/boundary/structural mutants that the behavioural
+# tests above never exercised: the exact BOUNDARY_BAND multiplier (as opposed
+# to some other combining operator), the strict "<" boundary edge, the exact
+# ratio (as opposed to a floor division that happens to still land in [0,1)
+# for the existing positive-control test), a verdict flipping fail->pass
+# specifically, StabilityResult's immutability, and continue-vs-break in the
+# exclusion loop.
+
+
+def test_boundary_band_multiplies_not_mods_epsilon():
+    """BOUNDARY_BAND * epsilon must scale the exclusion threshold; a `%`
+    substitute gives an unrelated (usually much smaller) value. epsilon=0.7
+    -> correct band=1.4, mod-mutant band=2.0%0.7=0.6. margin=-1.0 (|margin|=
+    1.0) sits inside the correct band but outside the mutant's.
+    """
+    mate = _mate(1.5)  # margin = 0.5 - 1.5 = -1.0
+    result = verdict_stability([mate], epsilon=0.7, seed=0)
+    assert result.tested == 0
+    assert result.excluded == 1
+
+
+def test_boundary_band_constant_is_two_not_one():
+    """Pins BOUNDARY_BAND's actual value (2.0), not just the multiplication
+    operator. epsilon=0.1 -> band=0.2 if BOUNDARY_BAND=2.0, 0.1 if it were
+    1.0. margin=0.15 falls inside the first, outside the second.
+    """
+    mate = _mate(0.35)  # margin = 0.5 - 0.35 = 0.15
+    result = verdict_stability([mate], epsilon=0.1, seed=0)
+    assert result.tested == 0
+    assert result.excluded == 1
+
+
+def test_boundary_band_edge_is_tested_not_excluded():
+    """|margin| exactly equal to the exclusion threshold must be TESTED
+    (strict `<`), not excluded; a `<=` mutant would wrongly exclude it.
+    epsilon=0.1 -> band=0.2; margin=0.2 exactly.
+    """
+    mate = _mate(0.3)  # margin = 0.5 - 0.3 = 0.2
+    result = verdict_stability([mate], epsilon=0.1, seed=0)
+    assert result.tested == 1
+    assert result.excluded == 0
+
+
+def test_excluded_mate_does_not_short_circuit_remaining_mates():
+    """The exclusion loop uses `continue`, not `break`: an excluded mate
+    must only be skipped, not abandon every mate after it in the list.
+    """
+    mates = [_mate(0.5), _mate(0.05)]  # first excluded (margin=0), second tested
+    result = verdict_stability(mates, epsilon=1e-3, seed=0)
+    assert result.excluded == 1
+    assert result.tested == 1
+
+
+def test_stability_result_is_immutable():
+    mates = [_mate(0.05)]
+    result = verdict_stability(mates, epsilon=1e-6, seed=0)
+    assert isinstance(result, StabilityResult)
+    with pytest.raises(AttributeError):
+        result.value = 0.0
+
+
+def test_stability_value_is_a_true_ratio_not_a_floor_division(monkeypatch):
+    """stable/tested must be an exact ratio. A `//` substitute rounds every
+    non-full-stability case down to 0 for these small integer counts, which
+    the existing positive-control test cannot catch (it only asserts
+    0.0 <= value < 1.0, and floor-division's 0 satisfies that too). Forces
+    exactly stable=1, tested=2 (ratio 0.5) via a fake `check`, independent
+    of the perturbation's randomness.
+    """
+    import tolcad.reliability as mod
+
+    calls = {"n": 0}
+
+    def fake_check(mate):
+        calls["n"] += 1
+        # Call order: mate1-base, mate1-perturbed, mate2-base, mate2-perturbed.
+        # mate1 is stable (True both times); mate2 flips (True then False).
+        idx = calls["n"]
+        if idx in (1, 2):
+            return Verdict(assembles=True, margin=10.0, method="x", detail={})
+        return Verdict(assembles=(idx == 3), margin=10.0, method="x", detail={})
+
+    monkeypatch.setattr(mod, "check", fake_check)
+    mates = [
+        {"type": "virtual_condition", "pin": {}, "hole": {}},
+        {"type": "virtual_condition", "pin": {}, "hole": {}},
+    ]
+    result = mod.verdict_stability(mates, epsilon=1e-6, seed=0)
+    assert result.tested == 2
+    assert result.value == pytest.approx(0.5)
+
+
+def test_stability_counts_a_fail_to_pass_flip_as_unstable(monkeypatch):
+    """A verdict flipping from fail(base) to pass(perturbed) must count as
+    UNSTABLE. `perturbed.assembles == base.assembles` correctly reports
+    False (unstable) for False->True; a `>=` substitute (treating bool as
+    0/1) wrongly reports True>=False as True (stable) -- the one direction
+    of flip a `>=` mutant gets backwards.
+    """
+    import tolcad.reliability as mod
+
+    calls = {"n": 0}
+
+    def fake_check(mate):
+        calls["n"] += 1
+        # base (call 1) = False (fails); perturbed (call 2) = True (passes).
+        return Verdict(assembles=(calls["n"] == 2), margin=10.0, method="x", detail={})
+
+    monkeypatch.setattr(mod, "check", fake_check)
+    mate = {"type": "virtual_condition", "pin": {}, "hole": {}}
+    result = mod.verdict_stability([mate], epsilon=1e-6, seed=0)
+    assert result.tested == 1
+    assert result.value == pytest.approx(0.0)
+
+
+# --- Equivalent mutants (documented, not killed) ------------------------------
+#
+# 1. `stability_value = 1.0 if tested <= 0 else ...` in place of
+#    `if tested == 0 else ...`. `tested` is a counter initialised to 0 and
+#    only ever incremented, so it can never go negative; given that
+#    invariant, `tested <= 0` and `tested == 0` are the same predicate.
+#
+# 2. `check(_perturb(...)).assembles is base.assembles` in place of
+#    `== base.assembles`. Both sides are Python `bool`, and CPython
+#    guarantees `True`/`False` are process-wide singletons -- there are only
+#    ever two bool objects in existence, so `is`/`is not` and `==`/`!=`
+#    agree on every bool comparison. There is no pair of bools for which
+#    they could disagree.
