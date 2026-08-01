@@ -19,12 +19,23 @@ from tolcad.gen.spec import AssemblySpec, MateSpec
 MAX_DIFFICULTY = 4
 
 # Fraction of the allowable position tolerance actually applied, by difficulty.
-# At difficulty 4 the range straddles 1.0, so some joints fail.
+#
+# EVERY RANGE MUST STRADDLE 1.0. The applied tolerance is allowable * f, and the
+# Y14.5 margin reduces to allowable * (1 - f) for a floating fastener and
+# allowable * (1 - mean(f_a, f_b)) for a fixed one. So f <= 1 everywhere makes
+# the margin non-negative *identically*: an earlier ladder capped d1-d3 at 1.0
+# and produced zero Tier 1 failures at three of the four levels, which meant a
+# model that always answered "assembles" scored 100% on Tier 1 below d4. Those
+# levels measured nothing.
+#
+# The ranges below were tuned by measuring the Tier 1 failure rate over seeds
+# 0-199 at each difficulty; see the table in the module tests. The shape is
+# monotonically increasing, roughly 20% at d1 to 70% at d4.
 _TOL_FRACTION_RANGE = {
-    1: (0.20, 0.50),
-    2: (0.40, 0.80),
-    3: (0.60, 1.00),
-    4: (0.80, 1.30),
+    1: (0.60, 1.09),
+    2: (0.65, 1.16),
+    3: (0.70, 1.25),
+    4: (0.72, 1.34),
 }
 
 _TIER1_KINDS = ("floating_fastener", "fixed_fastener")

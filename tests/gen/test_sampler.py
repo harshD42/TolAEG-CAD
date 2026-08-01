@@ -1,6 +1,26 @@
 import pytest
 from tolcad.checker import check
-from tolcad.gen.sampler import sample_assembly
+from tolcad.gen.sampler import MAX_DIFFICULTY, sample_assembly
+
+_GUARD_SEEDS = 80
+_DIFFICULTIES = tuple(range(1, MAX_DIFFICULTY + 1))
+
+
+def _tier1_verdicts(difficulty: int, seeds: int = _GUARD_SEEDS) -> list[bool]:
+    """assembles verdicts for the TIER 1 mates only.
+
+    Filtering out iso_fit is the whole point. The previous version of the guard
+    below pooled both tiers, and its two assertions were satisfied entirely by
+    iso_fit mates -- so it passed against a Tier 1 sampler that produced zero
+    failures at three of the four difficulty levels, and passed just as happily
+    when the ladder was mutated to a flat range or to constants of 0.0 and 5.0.
+    """
+    return [
+        check(m.to_check_dict()).assembles
+        for seed in range(seeds)
+        for m in sample_assembly(seed, difficulty).mates
+        if m.kind != "iso_fit"
+    ]
 
 
 def test_same_seed_gives_identical_spec():
@@ -13,7 +33,7 @@ def test_different_seeds_give_different_specs():
 
 
 def test_difficulty_controls_mate_count_and_is_capped_at_four():
-    for difficulty in (1, 2, 3, 4):
+    for difficulty in _DIFFICULTIES:
         spec = sample_assembly(0, difficulty)
         assert len(spec.mates) == difficulty
     # spec section 4.1 caps the tolerance loop at 4 contributors
@@ -24,28 +44,51 @@ def test_difficulty_controls_mate_count_and_is_capped_at_four():
 def test_every_generated_mate_is_checkable():
     """The generator must never emit a mate the checker rejects."""
     for seed in range(50):
-        for difficulty in (1, 2, 3, 4):
+        for difficulty in _DIFFICULTIES:
             for mate in sample_assembly(seed, difficulty).mates:
                 verdict = check(mate.to_check_dict())
                 assert isinstance(verdict.assembles, bool)
 
 
-def test_corpus_contains_both_passing_and_failing_mates():
-    """A generator that only produces assemblable parts measures nothing.
+@pytest.mark.parametrize("difficulty", _DIFFICULTIES)
+def test_tier1_corpus_contains_both_passing_and_failing_mates(difficulty):
+    """A difficulty level whose Tier 1 mates all assemble measures nothing.
 
-    Guards the failure mode this project has hit repeatedly: a fixture that
-    cannot exercise the negative branch.
+    At such a level "always answer assembles" scores 100% on Tier 1, which is
+    exactly the degeneracy this project keeps producing. EVERY level has to
+    exercise both branches, not just the corpus as a whole, and it has to do so
+    with Tier 1 mates -- iso_fit is Tier 2 and is graded by a different module.
     """
-    verdicts = [
-        check(m.to_check_dict()).assembles
-        for seed in range(80)
-        for m in sample_assembly(seed, 3).mates
-    ]
-    assert any(verdicts), "no assemblable mates generated"
-    assert not all(verdicts), "no non-assemblable mates generated"
+    verdicts = _tier1_verdicts(difficulty)
+    assert verdicts, f"d{difficulty} produced no Tier 1 mates at all"
+    assert any(verdicts), f"d{difficulty}: no assemblable Tier 1 mates"
+    assert not all(verdicts), f"d{difficulty}: no non-assemblable Tier 1 mates"
+
+
+def test_tier1_failure_rate_rises_monotonically_with_difficulty():
+    """Difficulty must actually mean something. Nothing else asserts that.
+
+    The applied position tolerance is allowable * f, so the Y14.5 margin is
+    allowable * (1 - f) floating and allowable * (1 - mean(f_a, f_b)) fixed.
+    A ladder capped at f <= 1 makes every margin non-negative by construction;
+    a flat ladder makes every level identical. Both are ruled out here.
+    """
+    rates = []
+    for difficulty in _DIFFICULTIES:
+        verdicts = _tier1_verdicts(difficulty)
+        rates.append(1.0 - sum(verdicts) / len(verdicts))
+
+    assert all(later > earlier for earlier, later in zip(rates, rates[1:])), (
+        f"Tier 1 failure rate is not strictly increasing in difficulty: {rates}"
+    )
+    # Pin the ends of the ladder too, so a future edit cannot satisfy the
+    # monotonicity above with a degenerate 0.1% -> 0.2% ramp.
+    assert 0.10 <= rates[0] <= 0.30, f"d1 failure rate {rates[0]:.3f} off the ladder"
+    assert 0.60 <= rates[-1] <= 0.80, f"d4 failure rate {rates[-1]:.3f} off the ladder"
 
 
 def test_seed_and_difficulty_are_recorded_in_the_spec():
     spec = sample_assembly(13, 3)
     assert spec.seed == 13
     assert spec.difficulty == 3
+
