@@ -28,36 +28,41 @@ CORE_MODULES = ("types", "y14_5", "iso286", "montecarlo", "checker", "reliabilit
 
 CORE_TEST_SUBSET = [f"tests/test_{name}.py" for name in CORE_MODULES]
 
-# MEASURED, not chosen. A floor pinned at a round number is not a measurement,
-# and this project's drift class is precisely a threshold that stops tracking
-# what it bounds.
+# O-C: two-sided pins. A one-sided floor never flags an improvement, so the pin
+# silently detaches from the tree the moment the next test lands -- which is
+# exactly how the mutation pin drifted 2.04pp, four times its own tolerance,
+# inside the layer built to catch drift. Raising a MEASURED value is routine and
+# expected; widening a TOLERANCE requires a recorded reason here.
 #
-# Originally measured 91.64% TOTAL branch coverage on 2026-08-01 (233 stmts /
-# 15 miss / 90 branch / 12 partial; checker 100.00%, reliability 98.53%,
-# types 91.84%, iso286 88.89%, y14_5 87.34%, montecarlo 85.19%).
+# HISTORY. Coverage was previously a one-sided COVERAGE_FLOOR = 94.12 (itself
+# re-measured from an original 91.64 after Task 4's mutation-score triage added
+# branch-covering tests -- see git history for that derivation). Mutation was
+# previously MUTATION_MEASURED = 93.85 with a derived MUTATION_FLOOR, also
+# one-sided. Both floors independently pass at the values below, so this is a
+# re-pin onto a two-sided check, not a threshold change.
 #
-# RE-MEASURED 94.12% on 2026-08-01, same day, after Task 4's mutation-score
-# triage added targeted tests to all six core test files (killing survivors
-# like the zero-width tolerance band in types.py and the governing_part /
-# equal-mmc-boundary gaps in y14_5.py). Those tests exercise branches Layer 1
-# was not previously covering, so the honest floor moved with them -- leaving
-# the old 91.64 in place would have re-created exactly the "floor that stops
-# tracking what it bounds" defect this constant's own comment warns against.
-#
-# *** SCOPE, AND WHY IT MATTERS. *** The measurement omits src/tolcad/gen/ via
-# [tool.coverage.run] omit in pyproject.toml -- see the comment there, which is
-# the canonical explanation. In short: gen/ is deliberately outside Layer 1 and
-# Layer 2 (design spec non-goals), so its ~222 never-exercised statements were
-# pure denominator. With them in scope the TOTAL measured 48%, which meant core
-# coverage could HALVE and still clear the floor: a floor that cannot fail,
-# shipped inside the layer built to catch metrics that cannot fail. If someone
-# removes the omit, this constant becomes meaningless again -- though not
-# silently: the measurement would drop to ~48%, far below this floor, and the
-# gate would fail loudly rather than quietly stop measuring anything.
-#
-# Raising this pin is routine. LOWERING it requires a recorded reason here,
-# because a silently lowered floor is itself an instance of the drift class.
-COVERAGE_FLOOR = 94.12  # re-measured 2026-08-01 after Task 4's test additions
+# SCOPE, unchanged from the coverage floor's original comment: the coverage
+# measurement omits src/tolcad/gen/ via [tool.coverage.run] omit in
+# pyproject.toml -- see the comment there for why. The mutation measurement
+# aggregates killed / (total - incompetent) across the six core modules; see
+# run_mutation_score() below for the exact arithmetic.
+COVERAGE_MEASURED = 94.74   # measured 2026-08-01, gen/ omitted
+COVERAGE_TOLERANCE = 0.50
+MUTATION_MEASURED = 95.89   # measured 2026-08-01, six core modules
+MUTATION_TOLERANCE = 0.50
+
+
+def check_two_sided(measured: float, pinned: float, tolerance: float) -> tuple[bool, str]:
+    """True iff `measured` is within `tolerance` of `pinned`, in either direction."""
+    delta = measured - pinned
+    if delta < -tolerance:
+        return False, f"{measured:.2f} is below the pin {pinned:.2f} by {-delta:.2f}"
+    if delta > tolerance:
+        return False, (
+            f"{measured:.2f} is ABOVE the pin {pinned:.2f} by {delta:.2f} -- the "
+            f"tree improved and the pin has detached. Re-pin it and record why."
+        )
+    return True, f"{measured:.2f} within {tolerance:.2f} of {pinned:.2f}"
 
 
 def run_coverage() -> tuple[float, bool]:
@@ -77,50 +82,26 @@ def run_coverage() -> tuple[float, bool]:
             f"that was not measured.\n{proc.stdout[-2000:]}"
         )
     measured = float(match.group(1))
-    return measured, measured >= COVERAGE_FLOOR
+    ok, msg = check_two_sided(measured, COVERAGE_MEASURED, COVERAGE_TOLERANCE)
+    print(f"Core branch coverage: {msg}")
+    return measured, ok
 
 
-# MEASURED, not chosen. Set from an actual run -- see Step 4.
-#
-# Measured 2026-08-01, run 3. Recorded verbatim so the pin stays a measurement.
-#
-# 93.85% aggregate mutation score, via the exact run_mutation_score()
-# invocation below, AFTER triaging every survivor from the pre-fix baseline.
-#
-# THE DENOMINATOR, SPELLED OUT, because an earlier version of this comment got
-# it wrong. Run 2 (the diagnostic run that produced the survivor list) measured
-# per module: types 66/5, y14_5 339/40, iso286 515/169, montecarlo 97/44,
-# checker 24/8, reliability 77/9 as (total jobs / surviving). That is 1,118
-# TOTAL JOBS, of which 468 are INCOMPETENT (cannot execute at all), leaving
-#     650 VIABLE mutants, 275 of them surviving -> 375/650 = 57.69% killed.
-# 1,118 is the total-jobs figure, NOT the viable denominator; describing the
-# 275 survivors as "275 of 1,118 viable" made the arithmetic incoherent and is
-# corrected here. Run 3 re-measured the same 650-mutant denominator after the
-# triage: 610 killed, 40 surviving -> 610/650 = 93.8462%, displayed 93.85%.
-#
-# NOT EVERY RUN-3 SURVIVOR IS ACCOUNTED FOR. 40 survived run 3 and 23 were
-# documented equivalent, so ~17 were neither killed nor documented. Some are
-# now known: three `condition is "..."` mutants in y14_5.py were wrongly filed
-# as equivalent (they are live -- CPython does not intern the string
-# checker.py builds with str.replace) and are killed by tests added in the
-# fix round; the `hole.mmc % fastener.mmc` mutant in fixed_fastener_tolerance
-# was wrongly counted killed and is now killed for real. The remainder is
-# UNTRIAGED, and is reported as untriaged rather than absorbed into the
-# equivalent count. See task-4-fix-report.md.
-#
 # WHY A TOLERANCE AND NOT AN EXACT PIN. The comparison in run_mutation_score()
-# uses the RAW score while the value below is its 2-decimal display rounding,
-# so an exact pin can fail on an unchanged tree: the raw 93.8462 is BELOW a
-# literal 93.85 floor. Separately, cosmic-ray's per-mutant timeout is
-# load-sensitive (57.63% vs 57.69% on two nominally identical runs). 0.50pp is
-# wider than both effects and far narrower than any real regression.
+# uses the RAW score while MUTATION_MEASURED is its 2-decimal display rounding,
+# so an exact pin can fail on an unchanged tree: a raw score can be BELOW its
+# own displayed rounding (run 3 of the pre-fix layer measured 610/650 =
+# 93.8462%, displayed 93.85% -- the raw value was below the literal 93.85).
+# Separately, cosmic-ray's per-mutant timeout is load-sensitive (57.63% vs
+# 57.69% observed on two nominally identical runs). 0.50pp is wider than both
+# effects and far narrower than any real regression. The same tolerance is
+# used for coverage, which has no analogous rounding gap but benefits from the
+# same margin against measurement noise.
 #
-# Raising MUTATION_MEASURED is routine. Widening MUTATION_TOLERANCE requires a
-# recorded reason here, and LOWERING MUTATION_MEASURED does too -- for the same
-# reason as COVERAGE_FLOOR above.
-MUTATION_MEASURED = 93.85
-MUTATION_TOLERANCE = 0.50
-MUTATION_FLOOR = MUTATION_MEASURED - MUTATION_TOLERANCE
+# THE DENOMINATOR, for the current MUTATION_MEASURED = 95.89: aggregate killed
+# / (total - incompetent) across the six core modules, via the exact
+# run_mutation_score() invocation below. See task-4-fix-report.md and
+# task-2-report.md for the full per-module breakdown and triage history.
 
 _CONFIG = REPO_ROOT / "cosmic-ray.toml"
 
@@ -223,15 +204,17 @@ def run_mutation_score() -> tuple[float, bool]:
         raise RuntimeError("no viable mutants were generated; the config is wrong")
     killed = denominator - survived_all
     score = 100.0 * killed / denominator
-    return score, score >= MUTATION_FLOOR
+    ok, msg = check_two_sided(score, MUTATION_MEASURED, MUTATION_TOLERANCE)
+    print(f"Mutation score: {msg}")
+    return score, ok
 
 
 def _print_report(rows: list[tuple[str, str, str, bool]]) -> None:
     print("Suite integrity - tests that cannot fail (non-blocking for Gate A)")
     print()
-    for name, measured, threshold, ok in rows:
+    for name, measured, pin, ok in rows:
         status = "PASS" if ok else "FAIL"
-        print(f"  {name:<34} {status:<6} {measured} (floor {threshold})")
+        print(f"  {name:<34} {status:<6} {measured} (pin {pin})")
     print()
 
 
@@ -245,14 +228,19 @@ def main(argv: list[str]) -> int:
     else:
         measured, ok = run_coverage()
         rows.append(
-            ("Core branch coverage", f"{measured:.2f}%", f"{COVERAGE_FLOOR:.2f}%", ok)
+            (
+                "Core branch coverage",
+                f"{measured:.2f}%",
+                f"{COVERAGE_MEASURED:.2f}% +/- {COVERAGE_TOLERANCE:.2f}",
+                ok,
+            )
         )
         mutation_score, mutation_ok = run_mutation_score()
         rows.append(
             (
                 "Mutation score",
                 f"{mutation_score:.2f}%",
-                f"{MUTATION_FLOOR:.2f}%",
+                f"{MUTATION_MEASURED:.2f}% +/- {MUTATION_TOLERANCE:.2f}",
                 mutation_ok,
             )
         )

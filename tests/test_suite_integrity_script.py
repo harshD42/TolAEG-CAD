@@ -21,8 +21,8 @@ def test_it_names_the_six_core_modules():
     }
 
 
-def test_the_coverage_floor_is_a_measured_value_not_a_round_number():
-    """A floor pinned at an aspirational round number is not a measurement.
+def test_the_coverage_pin_is_a_measured_value_not_a_round_number():
+    """A pin set at an aspirational round number is not a measurement.
 
     The project's drift class is exactly this: a threshold that stops tracking
     what it is supposed to bound. Whatever the measured baseline is, it is
@@ -31,9 +31,9 @@ def test_the_coverage_floor_is_a_measured_value_not_a_round_number():
     sys.path.insert(0, str(REPO / "scripts"))
     import check_suite_integrity as mod
 
-    assert mod.COVERAGE_FLOOR not in (0, 50, 60, 70, 75, 80, 85, 90, 95, 100), (
-        f"COVERAGE_FLOOR {mod.COVERAGE_FLOOR} looks aspirational rather than "
-        f"measured. Run the script, read the number, pin that."
+    assert mod.COVERAGE_MEASURED not in (0, 50, 60, 70, 75, 80, 85, 90, 95, 100), (
+        f"COVERAGE_MEASURED {mod.COVERAGE_MEASURED} looks aspirational rather "
+        f"than measured. Run the script, read the number, pin that."
     )
 
 
@@ -65,12 +65,11 @@ def test_the_cosmic_ray_config_runs_the_whole_core_subset():
         )
 
 
-def test_the_mutation_floor_is_measured_not_aspirational():
-    """Checks MUTATION_MEASURED, not the derived MUTATION_FLOOR.
+def test_the_mutation_pin_is_measured_not_aspirational():
+    """Checks MUTATION_MEASURED directly -- the pin fed to check_two_sided.
 
-    MUTATION_FLOOR is MUTATION_MEASURED minus a tolerance, so it is an
-    arithmetic result and can land on a round number by coincidence without
-    that meaning anything. The measurement is the thing that has to be real.
+    The tolerance is a separate, deliberately-chosen margin (see the test
+    below); it is the MEASURED value that has to be real.
     """
     sys.path.insert(0, str(REPO / "scripts"))
     import check_suite_integrity as mod
@@ -81,9 +80,9 @@ def test_the_mutation_floor_is_measured_not_aspirational():
     )
 
 
-def test_the_mutation_floor_tolerates_the_display_rounding_it_is_pinned_from():
+def test_the_mutation_tolerance_covers_the_display_rounding_it_is_pinned_from():
     """MUTATION_MEASURED is a 2-decimal DISPLAY rounding; the gate compares the
-    RAW score. A floor set to the displayed value therefore fails on an
+    RAW score. A one-sided floor set to the displayed value can fail on an
     unchanged tree whenever the raw score rounds up into it -- which is exactly
     what run 3's 610/650 = 93.8462% did against a literal 93.85 floor. The
     tolerance must be at least half a display ulp (0.005) to close that gap; it
@@ -96,5 +95,46 @@ def test_the_mutation_floor_tolerates_the_display_rounding_it_is_pinned_from():
         "MUTATION_TOLERANCE must exceed the 2-decimal display rounding, or an "
         "unchanged tree can fail the gate deterministically"
     )
-    assert mod.MUTATION_FLOOR == mod.MUTATION_MEASURED - mod.MUTATION_TOLERANCE
-    assert mod.MUTATION_FLOOR < mod.MUTATION_MEASURED
+    # A raw score that only differs from the displayed pin by rounding must
+    # still pass the two-sided check, in both directions.
+    ok_down, _ = mod.check_two_sided(
+        mod.MUTATION_MEASURED - 0.0049, mod.MUTATION_MEASURED, mod.MUTATION_TOLERANCE
+    )
+    ok_up, _ = mod.check_two_sided(
+        mod.MUTATION_MEASURED + 0.0049, mod.MUTATION_MEASURED, mod.MUTATION_TOLERANCE
+    )
+    assert ok_down and ok_up
+
+
+def test_a_measurement_above_the_pin_fails_too():
+    """One-sided floors let the pin silently detach. That is how F1 happened.
+
+    MUTATION_MEASURED drifted 2.04pp below the tree -- four times its own
+    tolerance -- and the gate stayed green because a floor is a lower bound.
+    """
+    sys.path.insert(0, str(REPO / "scripts"))
+    import check_suite_integrity as mod
+
+    ok_low, msg_low = mod.check_two_sided(90.0, 95.0, 0.5)
+    assert not ok_low and "below" in msg_low.lower()
+
+    ok_high, msg_high = mod.check_two_sided(99.0, 95.0, 0.5)
+    assert not ok_high, "an improvement must also fail -- the pin has detached"
+    assert "re-pin" in msg_high.lower(), (
+        "the upward message must tell the operator to re-pin, not just report"
+    )
+
+    ok_mid, _ = mod.check_two_sided(95.2, 95.0, 0.5)
+    assert ok_mid
+
+
+def test_both_pins_are_measured_values_not_round_numbers():
+    sys.path.insert(0, str(REPO / "scripts"))
+    import check_suite_integrity as mod
+
+    for name in ("COVERAGE_MEASURED", "MUTATION_MEASURED"):
+        value = getattr(mod, name)
+        assert value not in (0, 50, 60, 70, 75, 80, 85, 90, 95, 100), (
+            f"{name} = {value} looks aspirational. Run the layer, read the "
+            f"number, pin that."
+        )
