@@ -128,7 +128,9 @@ _CONFIG = REPO_ROOT / "cosmic-ray.toml"
 def _mutate_one_module(module: str, workdir: Path) -> tuple[int, int, int]:
     """Run cosmic-ray over one core module. Returns (total, survived, incompetent)."""
     config = tomllib.loads(_CONFIG.read_text(encoding="utf-8"))
-    config["cosmic-ray"]["module-path"] = f"src/tolcad/{module}.py"
+    # module-path is deliberately NOT read from the file: cosmic-ray takes one
+    # module per session, so this function supplies it per call. Only timeout
+    # and test-command are inherited from cosmic-ray.toml.
 
     cfg_path = workdir / f"cr-{module}.toml"
     # Re-emit the config with only the field we changed; cosmic-ray reads TOML.
@@ -148,11 +150,26 @@ def _mutate_one_module(module: str, workdir: Path) -> tuple[int, int, int]:
                    cwd=REPO_ROOT, check=True, capture_output=True, text=True)
     subprocess.run(["cosmic-ray", "exec", str(cfg_path), str(session)],
                    cwd=REPO_ROOT, check=True, capture_output=True, text=True)
-    report = subprocess.run(["cr-report", str(session)],
-                            cwd=REPO_ROOT, capture_output=True, text=True).stdout
+    proc = subprocess.run(["cr-report", str(session)],
+                          cwd=REPO_ROOT, check=True, capture_output=True, text=True)
+    report = proc.stdout
 
-    total = int(re.search(r"total jobs:\s*(\d+)", report).group(1))
-    survived = int(re.search(r"surviving mutants:\s*(\d+)", report).group(1))
+    # Same principle as run_coverage(): refuse to report a number that was not
+    # measured. An unguarded .group(1) turns a cr-report format change into a
+    # bare AttributeError, which reads like a bug in this script rather than
+    # what it is -- the measurement having silently stopped being parseable.
+    def _count(label: str) -> int:
+        match = re.search(rf"{label}:\s*(\d+)", report)
+        if match is None:
+            raise RuntimeError(
+                f"could not parse '{label}' from cr-report output for "
+                f"{module}; refusing to report a number that was not "
+                f"measured.\n{report[-2000:]}"
+            )
+        return int(match.group(1))
+
+    total = _count("total jobs")
+    survived = _count("surviving mutants")
     # INCOMPETENT mutants fail to execute at all (RemoveDecorator on a
     # dataclass, for instance). They are neither killed nor surviving, so
     # counting them either way distorts the score.
@@ -166,8 +183,9 @@ def run_mutation_score() -> tuple[float, bool]:
     *** CONCURRENCY HAZARD -- DO NOT CALL THIS ALONGSIDE ANYTHING ELSE THAT
     READS src/tolcad/. *** cosmic-ray mutates each target module IN PLACE on
     disk for the duration of a single mutant's test run, then restores it,
-    one mutant at a time. On every normal exit observed during this layer's
-    development the restore was clean and byte-exact (`git diff src/` empty,
+    one mutant at a time. On all THREE normal exits observed during this
+    layer's development (three full runs; see task-4-report.md section 3) the
+    restore was clean and byte-exact (`git diff src/` empty,
     independently-diffed files matching HEAD). The hazard is ABNORMAL
     termination -- killing this process, a crash mid-mutant -- which can
     leave a checker-core file sitting on disk with a live mutant still

@@ -12,8 +12,10 @@
 # *** CONCURRENCY HAZARD -- DO NOT RUN ALONGSIDE ANYTHING ELSE. ***
 # cosmic-ray mutates the target module IN PLACE on disk (it patches the file,
 # shells out to the test command, then restores the original), one mutant at
-# a time, for the duration of `cosmic-ray exec`. On both normal exits observed
-# during this layer's development, the restore was clean and byte-exact --
+# a time, for the duration of `cosmic-ray exec`. On all THREE normal exits
+# observed during this layer's development (three full runs; see
+# task-4-report.md section 3 for what each one measured), the restore was
+# clean and byte-exact --
 # `git diff src/` came back empty and independently-diffed files (iso286.py,
 # y14_5.py) matched HEAD exactly. The hazard is specifically ABNORMAL
 # termination (killing the process, a crash mid-mutant), which can leave a
