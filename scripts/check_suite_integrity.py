@@ -82,29 +82,45 @@ def run_coverage() -> tuple[float, bool]:
 
 # MEASURED, not chosen. Set from an actual run -- see Step 4.
 #
-# Measured 93.85% aggregate mutation score on 2026-08-01, via the exact
-# run_mutation_score() invocation below, AFTER triaging every survivor from
-# the pre-fix baseline (275 of 1,118 viable mutants, 57.63-57.69% across two
-# runs -- the small run-to-run variance is cosmic-ray's per-mutant timeout
-# under load, not a code change). Each survivor was either killed with a new
-# test (e.g. the zero-width tolerance band in types.py/montecarlo.py, the
-# never-read detail["governing_part"] in y14_5.py, the never-exhaustively-
-# checked _DEVIATION_MICRONS table in iso286.py) or is recorded as an
-# equivalent mutant with a specific reason in the relevant test file (e.g.
-# FeatureType enum comparisons, where `is`/`==` cannot disagree for Enum
-# singletons). See task-4-report.md for the full survivor-by-survivor triage.
+# Measured 2026-08-01, run 3. Recorded verbatim so the pin stays a measurement.
 #
-# NOTE ON THE PIN BEING CONSERVATIVE. Three more types.py survivors (mmc/lmc
-# `is` mutants -- see the equivalent-mutant note in test_types.py -- plus a
-# frozen-dataclass and two guard-boundary gaps) were found and two of the
-# three killed with new tests AFTER this 93.85% run, while writing up the
-# triage. Per instruction, cosmic-ray was not re-run a fourth time to get a
-# post-fix number; those fixes can only raise the true current score, so
-# 93.85 remains a valid floor -- a lower bound the current tree still clears.
+# 93.85% aggregate mutation score, via the exact run_mutation_score()
+# invocation below, AFTER triaging every survivor from the pre-fix baseline.
 #
-# Raising this pin is routine. LOWERING it requires a recorded reason here,
-# for the same reason as COVERAGE_FLOOR above.
-MUTATION_FLOOR = 93.85  # measured 2026-08-01; see note above and task-4-report.md
+# THE DENOMINATOR, SPELLED OUT, because an earlier version of this comment got
+# it wrong. Run 2 (the diagnostic run that produced the survivor list) measured
+# per module: types 66/5, y14_5 339/40, iso286 515/169, montecarlo 97/44,
+# checker 24/8, reliability 77/9 as (total jobs / surviving). That is 1,118
+# TOTAL JOBS, of which 468 are INCOMPETENT (cannot execute at all), leaving
+#     650 VIABLE mutants, 275 of them surviving -> 375/650 = 57.69% killed.
+# 1,118 is the total-jobs figure, NOT the viable denominator; describing the
+# 275 survivors as "275 of 1,118 viable" made the arithmetic incoherent and is
+# corrected here. Run 3 re-measured the same 650-mutant denominator after the
+# triage: 610 killed, 40 surviving -> 610/650 = 93.8462%, displayed 93.85%.
+#
+# NOT EVERY RUN-3 SURVIVOR IS ACCOUNTED FOR. 40 survived run 3 and 23 were
+# documented equivalent, so ~17 were neither killed nor documented. Some are
+# now known: three `condition is "..."` mutants in y14_5.py were wrongly filed
+# as equivalent (they are live -- CPython does not intern the string
+# checker.py builds with str.replace) and are killed by tests added in the
+# fix round; the `hole.mmc % fastener.mmc` mutant in fixed_fastener_tolerance
+# was wrongly counted killed and is now killed for real. The remainder is
+# UNTRIAGED, and is reported as untriaged rather than absorbed into the
+# equivalent count. See task-4-fix-report.md.
+#
+# WHY A TOLERANCE AND NOT AN EXACT PIN. The comparison in run_mutation_score()
+# uses the RAW score while the value below is its 2-decimal display rounding,
+# so an exact pin can fail on an unchanged tree: the raw 93.8462 is BELOW a
+# literal 93.85 floor. Separately, cosmic-ray's per-mutant timeout is
+# load-sensitive (57.63% vs 57.69% on two nominally identical runs). 0.50pp is
+# wider than both effects and far narrower than any real regression.
+#
+# Raising MUTATION_MEASURED is routine. Widening MUTATION_TOLERANCE requires a
+# recorded reason here, and LOWERING MUTATION_MEASURED does too -- for the same
+# reason as COVERAGE_FLOOR above.
+MUTATION_MEASURED = 93.85
+MUTATION_TOLERANCE = 0.50
+MUTATION_FLOOR = MUTATION_MEASURED - MUTATION_TOLERANCE
 
 _CONFIG = REPO_ROOT / "cosmic-ray.toml"
 

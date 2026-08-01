@@ -66,10 +66,35 @@ def test_the_cosmic_ray_config_runs_the_whole_core_subset():
 
 
 def test_the_mutation_floor_is_measured_not_aspirational():
+    """Checks MUTATION_MEASURED, not the derived MUTATION_FLOOR.
+
+    MUTATION_FLOOR is MUTATION_MEASURED minus a tolerance, so it is an
+    arithmetic result and can land on a round number by coincidence without
+    that meaning anything. The measurement is the thing that has to be real.
+    """
     sys.path.insert(0, str(REPO / "scripts"))
     import check_suite_integrity as mod
 
-    assert mod.MUTATION_FLOOR not in (0, 50, 60, 70, 75, 80, 85, 90, 95, 100), (
-        f"MUTATION_FLOOR {mod.MUTATION_FLOOR} looks aspirational rather than "
-        f"measured. Run the layer, read the number, pin that."
+    assert mod.MUTATION_MEASURED not in (0, 50, 60, 70, 75, 80, 85, 90, 95, 100), (
+        f"MUTATION_MEASURED {mod.MUTATION_MEASURED} looks aspirational rather "
+        f"than measured. Run the layer, read the number, pin that."
     )
+
+
+def test_the_mutation_floor_tolerates_the_display_rounding_it_is_pinned_from():
+    """MUTATION_MEASURED is a 2-decimal DISPLAY rounding; the gate compares the
+    RAW score. A floor set to the displayed value therefore fails on an
+    unchanged tree whenever the raw score rounds up into it -- which is exactly
+    what run 3's 610/650 = 93.8462% did against a literal 93.85 floor. The
+    tolerance must be at least half a display ulp (0.005) to close that gap; it
+    is 0.50pp, which also absorbs cosmic-ray's observed timeout variance.
+    """
+    sys.path.insert(0, str(REPO / "scripts"))
+    import check_suite_integrity as mod
+
+    assert mod.MUTATION_TOLERANCE >= 0.005, (
+        "MUTATION_TOLERANCE must exceed the 2-decimal display rounding, or an "
+        "unchanged tree can fail the gate deterministically"
+    )
+    assert mod.MUTATION_FLOOR == mod.MUTATION_MEASURED - mod.MUTATION_TOLERANCE
+    assert mod.MUTATION_FLOOR < mod.MUTATION_MEASURED
