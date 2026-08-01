@@ -55,7 +55,13 @@ def floating_fastener_tolerance(
     """Position tolerance available to each part, floating fastener condition.
 
     T = H - F, where H is hole MMC and F is fastener MMC.
+
+    CROSS-VERIFIED (secondary sources, 2026-08-01): multiple independent published
+    references give the floating fastener formula as H = F + T, attributed to
+    ASME Y14.5-1994 Appendix B (section B3) - algebraically identical to T = H - F.
     Source: ASME Y14.5 floating fastener formula. CITATION PENDING HUMAN VERIFICATION.
+    (Cross-verification confirms the formula as widely republished; it does not
+    confirm it against the standard itself, which is paywalled.)
     """
     _check_fastener_pair(hole, fastener)
     return hole.mmc - fastener.mmc
@@ -66,8 +72,22 @@ def fixed_fastener_tolerance(hole: FeatureOfSize, fastener: FeatureOfSize) -> fl
 
     T = (H - F) / 2. The available clearance is split between the two parts
     because the fastener cannot shift in the part that constrains it.
-    Assumes a projected tolerance zone.
+
+    ASSUMES A PROJECTED TOLERANCE ZONE. This is load-bearing, not a footnote.
+    Cross-verified 2026-08-01: published references give the fixed fastener
+    condition with unequal tolerances as
+        projected zone:      H = F + T1 + T2          <- what this module implements
+        NOT projected:       H = F + T1 * (1 + 2P/D)  <- a different, larger formula
+    where P is the maximum thickness of the part carrying the clearance hole and D
+    the minimum thread depth (or thickness of the part restraining the fastener).
+    Those same references note the NON-projected case is the more common one on real
+    drawings. Because this project's procedural generator controls the tolerance
+    schema, it must emit projected zones explicitly; consuming a real-world drawing
+    that lacks one and applying this formula would be OPTIMISTIC (unsafe).
+
     Source: ASME Y14.5 fixed fastener formula. CITATION PENDING HUMAN VERIFICATION.
+    (Cross-verification confirms the formula as widely republished; it does not
+    confirm it against the standard itself, which is paywalled.)
     """
     _check_fastener_pair(hole, fastener)
     return (hole.mmc - fastener.mmc) / 2.0

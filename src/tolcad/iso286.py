@@ -15,10 +15,30 @@ Supported shaft letters and grades (fit_from_designation, hole-basis 'H' only):
 Any shaft letter present in _DEVIATION_MICRONS but not classified as es-based
 or ei-based below is rejected with ValueError rather than silently guessed.
 
+CROSS-VERIFICATION (secondary sources, 2026-08-01). Not a substitute for the
+primary check below, but it materially lowers the risk that these tables are wrong.
+Values were confirmed against independent published reproductions of ISO 286:
+
+  IT6 @ 10-18 mm  = 11 um   IT6 @ 18-30 mm = 13 um   IT7 @ 18-30 mm = 21 um
+  Shaft deviations @ 18-30 mm (es/ei, um):
+    g6 = -7 / -20    h6 =  0 / -13    k6 = +15 / +2    p6 = +35 / +22
+
+All agree with the tables below exactly. Sources: RoyMech's ISO 286-2 shaft
+tolerance table (18-30 mm row), plus two independent search-corroborated readings
+of the IT grade values. Pinned as executable assertions in
+tests/test_iso286.py, so a future edit that breaks them fails the suite.
+
+CAUTION for anyone repeating this: THREE of four automated table extractions came
+back MISALIGNED - RoyMech's page by one row (its "10-18" read was actually the
+6-10 band) and Wikipedia's IT table by one column (its "IT6" column was IT5).
+Never trust a single scrape of a numeric standards table; cross-read every value.
+
 TRANSCRIPTION SOURCE: replace this line with the exact edition and table number the
 values below were copied from (e.g. "ISO 286-1:2010, Table 1 and Table 6"). Leaving
 this line unedited means the tables are unverified and no derived number may be
 published. tests/test_iso286.py::test_transcription_source_recorded enforces this.
+The cross-verification above does NOT discharge this: it confirms the numbers match
+what secondary sources publish, not that they match the standard itself.
 """
 
 from __future__ import annotations
