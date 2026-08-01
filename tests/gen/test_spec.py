@@ -271,6 +271,85 @@ def test_non_fixed_kinds_must_not_carry_a_projected_zone():
         )
 
 
+def _fixed_mate(projected_zone_mm: float) -> MateSpec:
+    return MateSpec(
+        kind="fixed_fastener", nominal_mm=8.0,
+        hole_a={"nominal": 9.0, "lower_dev": 0.0, "upper_dev": 0.2},
+        hole_b={"nominal": 6.8, "lower_dev": 0.0, "upper_dev": 0.2},
+        fastener={"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
+        designation=None, position_tol_a=0.2, position_tol_b=0.2,
+        projected_zone_mm=projected_zone_mm,
+    )
+
+
+def test_assembly_rejects_a_zone_shorter_than_the_plate_it_projects_through():
+    """The B-4 precondition is a CROSS-OBJECT fact, so MateSpec cannot see it.
+
+    A mate carrying P = 8 mm inside an assembly whose clearance-hole part is
+    25 mm thick is the under-projected condition y14_5.fixed_fastener_tolerance
+    calls OPTIMISTIC (unsafe). Nothing the sampler emits looks like this today
+    -- but the schema is what gets frozen at pre-registration, and a schema
+    that accepts it publishes a P that contradicts its own geometry.
+    """
+    with pytest.raises(ValueError, match="B-4"):
+        AssemblySpec(
+            seed=0, difficulty=1, mates=[_fixed_mate(8.0)],
+            plate_size_mm=80.0, plate_thickness_mm=25.0,
+        )
+
+
+def test_a_zone_equal_to_the_plate_thickness_is_the_valid_case():
+    """What the sampler emits: both sides wired from _PLATE_THICKNESS_MM.
+
+    Equality is sufficient -- the fastener crosses part_a's full thickness and
+    no more -- so the guard must not demand a strict excess.
+    """
+    spec = AssemblySpec(
+        seed=0, difficulty=1, mates=[_fixed_mate(25.0)],
+        plate_size_mm=80.0, plate_thickness_mm=25.0,
+    )
+    assert spec.mates[0].projected_zone_mm == pytest.approx(25.0)
+    assert AssemblySpec.from_json(spec.to_json()) == spec
+
+
+def test_an_over_projected_zone_is_allowed():
+    """Projecting further than the plate is conservative, not unsafe."""
+    spec = AssemblySpec(
+        seed=0, difficulty=1, mates=[_fixed_mate(30.0)],
+        plate_size_mm=80.0, plate_thickness_mm=25.0,
+    )
+    assert spec.mates[0].projected_zone_mm == pytest.approx(30.0)
+
+
+def test_the_under_projection_guard_does_not_fire_on_other_kinds():
+    """Only B-4 has a projection term; a floating mate has no zone to compare."""
+    spec = AssemblySpec(
+        seed=0, difficulty=1, mates=[_floating_mate()],
+        plate_size_mm=40.0, plate_thickness_mm=25.0,
+    )
+    assert spec.mates[0].projected_zone_mm is None
+
+
+def test_every_sampled_assembly_satisfies_the_b4_precondition():
+    """The shipped corpus, not just a hand-built fixture.
+
+    sample_assembly constructs an AssemblySpec, so the guard already runs on
+    every draw; this states the expectation the corpus depends on out loud.
+    """
+    from tolcad.gen.sampler import MAX_DIFFICULTY, sample_assembly
+
+    for seed in range(25):
+        for difficulty in range(1, MAX_DIFFICULTY + 1):
+            spec = sample_assembly(seed, difficulty)
+            for mate in spec.mates:
+                if mate.kind != "fixed_fastener":
+                    continue
+                assert mate.projected_zone_mm >= spec.plate_thickness_mm, (
+                    f"seed {seed} d{difficulty}: P {mate.projected_zone_mm} < "
+                    f"plate {spec.plate_thickness_mm}"
+                )
+
+
 def test_projected_zone_is_not_sent_to_the_checker():
     """B-4 has no P term -- that is B-5, which tolcad does not implement.
 

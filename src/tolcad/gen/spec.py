@@ -139,6 +139,34 @@ class AssemblySpec:
     def __post_init__(self) -> None:
         if not self.mates:
             raise ValueError("an assembly needs at least one mate")
+        # CROSS-OBJECT INVARIANT, and the one that carries the safety meaning.
+        # MateSpec can only check that a fixed fastener HAS a projection;
+        # whether the projection is long enough is a fact about the plate the
+        # fastener crosses, which only the assembly knows.
+        #
+        # ASME Y14.5 B-4 assumes the tapped hole's tolerance zone is projected
+        # through the full thickness of the part the fastener passes through
+        # before it reaches the tapped feature. build.py drills part_a to
+        # spec.plate_thickness_mm, so a projection shorter than that leaves
+        # part of the joint outside the zone -- exactly the under-projected
+        # condition y14_5.fixed_fastener_tolerance calls OPTIMISTIC, i.e.
+        # unsafe. B-5 is the formula for that case and tolcad does not
+        # implement it, so an assembly whose verdict B-4 cannot support must
+        # not be constructible at all.
+        for index, mate in enumerate(self.mates):
+            if mate.kind != "fixed_fastener":
+                continue
+            if mate.projected_zone_mm < self.plate_thickness_mm:
+                raise ValueError(
+                    f"mate {index}: projected_zone_mm "
+                    f"{mate.projected_zone_mm} is shorter than "
+                    f"plate_thickness_mm {self.plate_thickness_mm}. ASME Y14.5 "
+                    f"B-4 -- the formula y14_5.fastener_assembles applies to a "
+                    f"fixed fastener -- assumes the zone is projected through "
+                    f"the whole part the fastener crosses. Under-projected, "
+                    f"its margin is OPTIMISTIC (unsafe); the non-projected "
+                    f"case is B-5, which tolcad does not implement."
+                )
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, sort_keys=True)
