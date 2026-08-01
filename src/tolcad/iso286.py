@@ -1,7 +1,11 @@
 """ISO 286 limits and fits, hole-basis system.
 
-Table values transcribed from ISO 286-1. Published in micrometres; converted to
-millimetres at the table boundary so that no downstream code handles microns.
+Table values transcribed from ISO 286-1. The standard's Table 1 publishes
+IT01-IT11 in micrometres and IT12-IT18 in millimetres -- two different units
+across grade columns of the same table (see TRANSCRIPTION SOURCE below for the
+split). Both are converted to micrometres on entry into _IT_MICRONS, so every
+grade is divided by 1000 uniformly at the table boundary in this module and no
+downstream code handles microns or the mm/um split itself.
 
 Supported shaft letters and grades (fit_from_designation, hole-basis 'H' only):
   - 'g', 'h': es-based (tabulated value is the upper deviation); valid for any
