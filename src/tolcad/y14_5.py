@@ -103,3 +103,16 @@ def fastener_assembles(
             "fastener_mmc": fastener.mmc,
         },
     )
+
+
+def bonus_tolerance(feature: FeatureOfSize, actual_size: float) -> float:
+    """Extra position tolerance earned by departing from MMC, under the MMC modifier.
+
+    Bonus equals the departure from MMC toward LMC. Zero at MMC, maximal at LMC.
+    """
+    if not (feature.min_size - EPS <= actual_size <= feature.max_size + EPS):
+        raise ValueError(
+            f"actual_size {actual_size} outside limits "
+            f"[{feature.min_size}, {feature.max_size}]"
+        )
+    return abs(actual_size - feature.mmc)

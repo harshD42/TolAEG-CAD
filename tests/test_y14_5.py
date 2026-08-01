@@ -1,6 +1,7 @@
 import pytest
 from tolcad.types import FeatureOfSize, FeatureType
 from tolcad.y14_5 import (
+    bonus_tolerance,
     fastener_assembles,
     fixed_fastener_tolerance,
     floating_fastener_tolerance,
@@ -119,3 +120,29 @@ def test_rejects_external_hole_b():
     external_hole = FeatureOfSize(8.0, -0.1, 0.0, EXTERNAL, position_tol=0.1)
     with pytest.raises(ValueError, match="hole_b"):
         fastener_assembles(hole_a, external_hole, M8_BOLT, condition="floating")
+
+
+def test_no_bonus_at_mmc():
+    hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL)
+    assert bonus_tolerance(hole, 8.5) == pytest.approx(0.0)
+
+
+def test_full_bonus_at_lmc_for_internal_feature():
+    hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL)
+    assert bonus_tolerance(hole, 8.7) == pytest.approx(0.2)
+
+
+def test_full_bonus_at_lmc_for_external_feature():
+    pin = FeatureOfSize(8.0, -0.1, 0.0, EXTERNAL)
+    assert bonus_tolerance(pin, 7.9) == pytest.approx(0.1)
+
+
+def test_partial_bonus_mid_range():
+    hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL)
+    assert bonus_tolerance(hole, 8.6) == pytest.approx(0.1)
+
+
+def test_actual_size_outside_limits_rejected():
+    hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL)
+    with pytest.raises(ValueError, match="outside"):
+        bonus_tolerance(hole, 8.9)
