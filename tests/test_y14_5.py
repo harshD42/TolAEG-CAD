@@ -77,12 +77,14 @@ def test_floating_fastener_assembles_at_allowable_tolerance():
 
 
 def test_floating_fastener_fails_above_allowable_tolerance():
+    # Per-part (B-3): margin = min(H_a-F-T_a, H_b-F-T_b).
     # H_a=H_b=8.5, F=8.0, T_a=T_b=0.6:
-    # margin = (8.5-8.0) + (8.5-8.0) - (0.6+0.6) = 1.0 - 1.2 = -0.2
+    # margin_a = margin_b = 8.5-8.0-0.6 = -0.1
+    # margin = min(-0.1, -0.1) = -0.1
     hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.6)
     verdict = fastener_assembles(hole, hole, M8_BOLT, condition="floating")
     assert verdict.assembles is False
-    assert verdict.margin == pytest.approx(-0.2)
+    assert verdict.margin == pytest.approx(-0.1)
 
 
 def test_fixed_fastener_is_stricter_than_floating():
@@ -93,46 +95,62 @@ def test_fixed_fastener_is_stricter_than_floating():
 
 
 def test_asymmetric_holes_worse_on_hole_a():
-    """H_a=H_b=8.5, F=8.0, T_a=0.6, T_b=0.1: worst-case axis separation is
-    T_a/2 + T_b/2 = 0.35, comfortably within the combined permitted radius
-    r_a + r_b = 0.25 + 0.25 = 0.50, so this ASSEMBLES.
-    margin = (8.5-8.0) + (8.5-8.0) - (0.6+0.1) = 1.0 - 0.7 = +0.3
+    """Per-part (B-3): margin = min(H_a-F-T_a, H_b-F-T_b) -- the joint is
+    only as good as its worst individual part, never an average or sum.
+    H_a=H_b=8.5, F=8.0, T_a=0.6, T_b=0.1:
+      margin_a = 8.5-8.0-0.6 = -0.1
+      margin_b = 8.5-8.0-0.1 = +0.4
+      margin = min(-0.1, +0.4) = -0.1
+    hole_a is the worse part (large T_a) and its own -0.1 governs, so this
+    does NOT assemble -- unlike the old pooled model, which averaged the two
+    parts' slack together and let hole_b's surplus paper over hole_a's
+    deficit.
     """
     hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.6)
     hole_b = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
     verdict = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
-    assert verdict.assembles is True
-    assert verdict.margin == pytest.approx(0.3)
+    assert verdict.assembles is False
+    assert verdict.margin == pytest.approx(-0.1)
 
 
 def test_asymmetric_holes_worse_on_hole_b():
-    """Same as above with hole_a/hole_b's tolerances swapped. Floating pools
-    T_a and T_b symmetrically, so the verdict and margin are identical.
-    margin = (8.5-8.0) + (8.5-8.0) - (0.1+0.6) = 1.0 - 0.7 = +0.3
+    """Same as above with hole_a/hole_b's tolerances swapped. min() is
+    commutative, so the verdict and margin are identical to the
+    hole_a-governs case above.
+    H_a=H_b=8.5, F=8.0, T_a=0.1, T_b=0.6:
+      margin_a = 8.5-8.0-0.1 = +0.4
+      margin_b = 8.5-8.0-0.6 = -0.1
+      margin = min(+0.4, -0.1) = -0.1
     """
     hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
     hole_b = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.6)
     verdict = fastener_assembles(hole_a, hole_b, M8_BOLT, condition="floating")
-    assert verdict.assembles is True
-    assert verdict.margin == pytest.approx(0.3)
+    assert verdict.assembles is False
+    assert verdict.margin == pytest.approx(-0.1)
 
 
 def test_floating_fully_swap_invariant():
-    """Floating is symmetric under (H_a,T_a) <-> (H_b,T_b): swapping which
+    """Floating (per-part, B-3) is symmetric under (H_a,T_a) <-> (H_b,T_b):
+    margin = min(H_a-F-T_a, H_b-F-T_b), and min() of an unordered pair does
+    not care which element is labelled 'a' and which 'b'. Swapping which
     part is 'a' and which is 'b' must not change margin or verdict, even
     when the holes differ in both size and position_tol.
 
     This also pins an absolute expected margin: asserting only that the two
-    swapped verdicts equal EACH OTHER passes under the old buggy min()
+    swapped verdicts equal EACH OTHER passes under the old buggy pooled
     model too (and under any wrong-but-symmetric formula), since anything
     symmetric in (H_a,T_a) <-> (H_b,T_b) agrees with itself under a swap.
     Pinning the value against the documented formula is what actually
     discriminates the correct model from a symmetric-but-wrong one.
 
     H_a=8.5, F=8.0, T_a=0.3; H_b=8.6, T_b=0.4:
-    margin = (H_a-F) + (H_b-F) - (T_a+T_b)
-           = (8.5-8.0) + (8.6-8.0) - (0.3+0.4)
-           = 0.5 + 0.6 - 0.7 = 0.4
+      margin_a = 8.5-8.0-0.3 = 0.2
+      margin_b = 8.6-8.0-0.4 = 0.2
+      margin = min(0.2, 0.2) = 0.2
+    Swapped (H_a=8.6,T_a=0.4; H_b=8.5,T_b=0.3):
+      margin_a = 8.6-8.0-0.4 = 0.2
+      margin_b = 8.5-8.0-0.3 = 0.2
+      margin = min(0.2, 0.2) = 0.2  (same)
     """
     hole_a = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.3)
     hole_b = FeatureOfSize(8.6, 0.0, 0.2, INTERNAL, position_tol=0.4)
@@ -140,8 +158,8 @@ def test_floating_fully_swap_invariant():
     v2 = fastener_assembles(hole_b, hole_a, M8_BOLT, condition="floating")
     assert v1.assembles == v2.assembles
     assert v1.margin == pytest.approx(v2.margin)
-    assert v1.margin == pytest.approx(0.4)
-    assert v2.margin == pytest.approx(0.4)
+    assert v1.margin == pytest.approx(0.2)
+    assert v2.margin == pytest.approx(0.2)
 
 
 def test_fixed_symmetric_in_position_tol_swap_only():
@@ -192,13 +210,16 @@ def test_unknown_condition_rejected():
 
 
 def test_argument_order_does_not_change_verdict_for_asymmetric_hole_sizes():
-    """Floating pools both holes' clearance and both position tolerances, so
-    swapping hole_a/hole_b must not change the verdict when the holes differ
-    in SIZE (not just position_tol) either.
+    """Floating (per-part, B-3) takes min() over both parts' individual
+    margins, so swapping hole_a/hole_b must not change the verdict when the
+    holes differ in SIZE (not just position_tol) either.
 
     Ø8.5 and Ø8.05 holes, both position_tol 0.3, through an M8 bolt (mmc 8.0):
-    margin = (8.5-8.0) + (8.05-8.0) - (0.3+0.3) = 0.5 + 0.05 - 0.6 = -0.05
-    and the joint does not assemble, regardless of order.
+      margin_big  = 8.5 -8.0-0.3 = +0.2
+      margin_tight= 8.05-8.0-0.3 = -0.25
+      margin = min(+0.2, -0.25) = -0.25
+    and the joint does not assemble, regardless of order (min is
+    commutative, so which hole is labelled 'a' or 'b' does not matter).
     """
     big = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.3)
     tight = FeatureOfSize(8.05, 0.0, 0.2, INTERNAL, position_tol=0.3)
@@ -209,7 +230,7 @@ def test_argument_order_does_not_change_verdict_for_asymmetric_hole_sizes():
     assert v_big_first.assembles == v_tight_first.assembles
     assert v_big_first.assembles is False
     assert v_big_first.margin == pytest.approx(v_tight_first.margin)
-    assert v_big_first.margin == pytest.approx(-0.05)
+    assert v_big_first.margin == pytest.approx(-0.25)
 
     # hole_a_mmc/hole_b_mmc must be recorded consistently regardless of
     # argument order (governing_hole/governing_hole_mmc no longer exist --
@@ -293,14 +314,15 @@ def test_detail_radial_slack_is_half_the_diametral_margin():
     between the two axes is half of it.
 
     hole_a=hole_b=8.5, T_a=T_b=0.1, F=8.0 (M8_BOLT):
-    margin = (8.5-8.0) + (8.5-8.0) - (0.1+0.1) = 1.0 - 0.2 = 0.8
-    radial_slack = 0.8 / 2 = 0.4
+      margin_a = margin_b = 8.5-8.0-0.1 = 0.4
+      margin = min(0.4, 0.4) = 0.4
+    radial_slack = 0.4 / 2 = 0.2
     """
     hole = FeatureOfSize(8.5, 0.0, 0.2, INTERNAL, position_tol=0.1)
     verdict = fastener_assembles(hole, hole, M8_BOLT, condition="floating")
-    assert verdict.margin == pytest.approx(0.8)
+    assert verdict.margin == pytest.approx(0.4)
     assert verdict.detail["radial_slack"] == pytest.approx(verdict.margin / 2.0)
-    assert verdict.detail["radial_slack"] == pytest.approx(0.4)
+    assert verdict.detail["radial_slack"] == pytest.approx(0.2)
 
 
 def test_detail_margin_unit_states_diametral():
@@ -312,6 +334,96 @@ def test_detail_margin_unit_states_diametral():
     verdict = fastener_assembles(hole, hole, M8_BOLT, condition="fixed")
     assert verdict.detail["margin_unit"] == "diametral_mm"
     assert "diametral" in verdict.detail["margin_unit"]
+
+
+def test_b3_worked_example_boundary_case_assembles():
+    """ASME Y14.5-2018 Nonmandatory Appendix B, section B-3, worked example:
+
+    "Given that the fasteners in Figure B-1 are 6 diameter maximum and the
+    clearance holes are 6.44 diameter minimum, find the required positional
+    tolerance: T = 6.44 - 6 = 0.44 diameter for each part."
+
+    So F (fastener MMC) = 6.0, H_a = H_b = 6.44, T_a = T_b = 0.44 (exactly
+    the tolerance the standard says is "required", i.e. the boundary).
+    Per-part (B-3): margin = min(H_a-F-T_a, H_b-F-T_b)
+                            = min(6.44-6.0-0.44, 6.44-6.0-0.44)
+                            = min(0.0, 0.0) = 0.0
+    This is the exact boundary the standard's own arithmetic produces, so
+    it must assemble (margin >= -EPS).
+    """
+    fastener = FeatureOfSize(6.0, 0.0, 0.0, EXTERNAL)
+    hole = FeatureOfSize(6.44, 0.0, 0.0, INTERNAL, position_tol=0.44)
+    verdict = fastener_assembles(hole, hole, fastener, condition="floating")
+    assert verdict.assembles is True
+    assert verdict.margin == pytest.approx(0.0, abs=1e-9)
+
+
+def test_b4_worked_example_boundary_case_assembles():
+    """ASME Y14.5-2018 Nonmandatory Appendix B, section B-4, worked example
+    (same Figure B-1 geometry as the B-3 example, now fixed fastener):
+
+    "T = (6.44-6)/2 = 0.22 diameter for each part."
+
+    F = 6.0, H_a = H_b = 6.44, T_a = T_b = 0.22 (the "required" tolerance,
+    i.e. the boundary).
+    Fixed (B-4): margin = (H_a-F) - (T_a+T_b)
+                        = (6.44-6.0) - (0.22+0.22)
+                        = 0.44 - 0.44 = 0.0
+    Must assemble at this exact boundary.
+    """
+    fastener = FeatureOfSize(6.0, 0.0, 0.0, EXTERNAL)
+    hole = FeatureOfSize(6.44, 0.0, 0.0, INTERNAL, position_tol=0.22)
+    verdict = fastener_assembles(hole, hole, fastener, condition="fixed")
+    assert verdict.assembles is True
+    assert verdict.margin == pytest.approx(0.0, abs=1e-9)
+
+
+def test_b4_worked_example_unequal_split_boundary_case_assembles():
+    """ASME Y14.5-2018 Nonmandatory Appendix B, section B-4, unequal-split
+    worked example (same Figure B-1 geometry, 2T = 0.44 split unevenly):
+
+    "When 2T is 0.44, if T1 = 0.18, then T2 = 0.26."
+
+    F = 6.0, H_a = 6.44, T_a = 0.18, T_b = 0.26.
+    Fixed (B-4): margin = (H_a-F) - (T_a+T_b)
+                        = (6.44-6.0) - (0.18+0.26)
+                        = 0.44 - 0.44 = 0.0
+    Must assemble at this exact boundary, regardless of how the 0.44 total
+    is split between the two parts.
+    """
+    fastener = FeatureOfSize(6.0, 0.0, 0.0, EXTERNAL)
+    hole_a = FeatureOfSize(6.44, 0.0, 0.0, INTERNAL, position_tol=0.18)
+    hole_b = FeatureOfSize(6.44, 0.0, 0.0, INTERNAL, position_tol=0.26)
+    verdict = fastener_assembles(hole_a, hole_b, fastener, condition="fixed")
+    assert verdict.assembles is True
+    assert verdict.margin == pytest.approx(0.0, abs=1e-9)
+
+
+def test_per_part_rule_discriminates_against_pooled_model():
+    """ASME Y14.5-2018 Nonmandatory Appendix B, section B-3: the per-part
+    rule ("the formula H = F + T or T = H - F is applied to each part
+    individually") must reject a joint that the old, incorrect POOLED model
+    would have accepted.
+
+    H_a=8.6, T_a=0.65; H_b=8.2, T_b=0.0; F=8.0 (floating):
+      margin_a = 8.6-8.0-0.65 = -0.05
+      margin_b = 8.2-8.0-0.0  = +0.20
+      per-part margin = min(-0.05, +0.20) = -0.05  -> does NOT assemble
+
+    The old pooled model, margin = (H_a-F)+(H_b-F)-(T_a+T_b), would give
+      (8.6-8.0)+(8.2-8.0)-(0.65+0.0) = 0.6+0.2-0.65 = +0.15  -> assembles
+
+    This case exists specifically to fail if anyone reintroduces pooling:
+    hole_a is individually out of tolerance (margin_a < 0) but hole_b's
+    surplus slack is large enough to paper over the deficit under pooling.
+    B-3 forbids exactly this kind of cross-part averaging.
+    """
+    fastener = FeatureOfSize(8.0, 0.0, 0.0, EXTERNAL)
+    hole_a = FeatureOfSize(8.6, 0.0, 0.0, INTERNAL, position_tol=0.65)
+    hole_b = FeatureOfSize(8.2, 0.0, 0.0, INTERNAL, position_tol=0.0)
+    verdict = fastener_assembles(hole_a, hole_b, fastener, condition="floating")
+    assert verdict.assembles is False
+    assert verdict.margin == pytest.approx(-0.05)
 
 
 def test_no_bonus_at_mmc():

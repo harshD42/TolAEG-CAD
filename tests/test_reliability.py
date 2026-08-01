@@ -167,20 +167,21 @@ def test_min_max_abs_margin_report_actual_extremes_of_tested_set():
     placeholder). Uses distinct, hand-computable margins so the extremes
     are unambiguous.
 
-    Allowable is H - F = 8.5 - 8.0 = 0.5 (floating, equal holes), so
-    margin = 2*(0.5 - position_tol):
-      position_tol=0.05 -> margin = 2*(0.5-0.05) = 0.90
-      position_tol=0.10 -> margin = 2*(0.5-0.10) = 0.80
-      position_tol=0.20 -> margin = 2*(0.5-0.20) = 0.60
+    `_mate` uses the SAME hole dict for hole_a and hole_b, so per-part
+    (B-3) floating reduces to margin = min(H-F-T, H-F-T) = H-F-T, with
+    H - F = 8.5 - 8.0 = 0.5:
+      position_tol=0.05 -> margin = 0.5-0.05 = 0.45
+      position_tol=0.10 -> margin = 0.5-0.10 = 0.40
+      position_tol=0.20 -> margin = 0.5-0.20 = 0.30
     With epsilon=1e-6, the exclusion band is 2e-6, so none of these
-    (margins 0.6-0.9) are anywhere near excluded.
+    (margins 0.3-0.45) are anywhere near excluded.
     """
     mates = [_mate(t) for t in (0.05, 0.10, 0.20)]
     result = verdict_stability(mates, epsilon=1e-6, seed=0)
     assert result.tested == 3
     assert result.excluded == 0
-    assert result.min_abs_margin == pytest.approx(0.6)
-    assert result.max_abs_margin == pytest.approx(0.9)
+    assert result.min_abs_margin == pytest.approx(0.3)
+    assert result.max_abs_margin == pytest.approx(0.45)
 
 
 def test_min_max_abs_margin_none_when_all_excluded():

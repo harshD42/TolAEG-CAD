@@ -99,37 +99,46 @@ def fastener_assembles(
     fastener: FeatureOfSize,
     condition: str,
 ) -> Verdict:
-    """Check a two-part fastened joint by pooling clearance against pooled position error.
+    """Check a two-part fastened joint against ASME Y14.5-2018 Nonmandatory Appendix B.
 
-    MODEL. Let H_a, H_b be the two holes' MMC diameters, F the fastener's MMC
-    diameter, and T_a, T_b the two parts' diametral position tolerances. A
-    fastener of diameter F passes through hole i iff its axis lies within
-    radius (H_i - F)/2 of that hole's axis. Worst-case separation between the
-    two hole axes is T_a/2 + T_b/2.
+    SOURCE: ASME Y14.5-2018, Nonmandatory Appendix B, "Formulas for Positional
+    Tolerancing", sections B-3 (floating) and B-4 (fixed). Symbols follow B-2.1:
+    H = minimum diameter of clearance hole (MMC limit); F = maximum diameter of
+    fastener (MMC limit); T = positional tolerance diameter.
 
-    - FLOATING (fastener passes clearance holes in BOTH parts and may
-      translate freely to accommodate the misalignment): the two permitted
-      discs, one per part, must intersect:
-          margin = (H_a - F) + (H_b - F) - (T_a + T_b)
-      This is symmetric in (H_a, T_a) <-> (H_b, T_b): swapping which part is
-      "a" and which is "b" cannot change the verdict.
+    - FLOATING (B-3) — fastener passes clearance holes in BOTH parts, e.g. bolt
+      and nut. The formula is H = F + T, equivalently T = H - F. For unequal
+      parts B-3 is explicit that it is applied PER PART, not pooled: "Any number
+      of parts with different hole sizes and positional tolerances may be mated,
+      provided the formula H = F + T or T = H - F is applied to each part
+      individually." Hence:
+          margin = min(H_a - F - T_a,  H_b - F - T_b)
+      Symmetric in (H_a, T_a) <-> (H_b, T_b), since min is commutative.
 
-    - FIXED (the fastener is constrained by one part — a tapped hole or a
-      press-fit pin — so it cannot float to split the misalignment). hole_a
-      is the CLEARANCE hole the fastener must pass through; hole_b is the
-      FIXED FEATURE that locates the fastener and holds it on-axis:
+      WHY PER-PART AND NOT A POOLED DISC-INTERSECTION CONDITION. A pooled
+      condition, (H_a - F) + (H_b - F) >= T_a + T_b, is the correct answer to a
+      different question: whether one specific pair of parts can physically be
+      assembled. It is strictly more permissive. Y14.5 governs drawing
+      conformance and interchangeability — each part must be acceptable against
+      its own drawing without reference to the actual deviations of the mating
+      part — so the per-part rule is the standards-conformant one and is what
+      this module implements. An earlier version of this code used the pooled
+      form and was wrong for that reason, not for a geometric one.
+
+    - FIXED (B-4) — the fastener is restrained by one part (screw in a tapped
+      hole, or a stud). hole_a is the CLEARANCE hole; hole_b is the FIXED
+      FEATURE. For equal tolerances B-4 gives H = F + 2T, i.e. T = (H - F)/2.
+      B-4 then generalises to unequal tolerances explicitly: "The general
+      formula for the fixed fastener case where two mating parts have different
+      positional tolerances is H = F + T1 + T2." Hence:
           margin = (H_a - F) - (T_a + T_b)
-      H_b does not appear: the fixed feature's own MMC is irrelevant to
-      whether the fastener clears hole_a. This is NOT symmetric under a full
-      (H_a, T_a) <-> (H_b, T_b) swap (the size term only ever involves H_a),
-      but it IS symmetric under swapping T_a <-> T_b alone, since both
-      tolerances enter only as a sum.
+      H_b does not appear: the fixed feature's own MMC is irrelevant to whether
+      the fastener clears hole_a. Not symmetric under a full (H_a, T_a) <->
+      (H_b, T_b) swap, but symmetric under swapping T_a <-> T_b alone.
 
-    Both forms reduce to the classic Y14.5 single-hole formulas in the
-    symmetric case (H_a = H_b = H, T_a = T_b = T, i.e. equal parts):
-    floating -> T = H - F per part, fixed -> T = (H - F) / 2 per part.
-    (Floating: 2(H-F) - 2T = 0 -> T = H - F. Fixed: (H-F) - 2T = 0 ->
-    T = (H-F) / 2.)
+    Both reduce to the classic single-hole forms when the parts are equal
+    (H_a = H_b = H, T_a = T_b = T): floating -> T = H - F; fixed -> the two
+    tolerances sum to H - F, i.e. T = (H - F)/2 each.
 
     Assembles iff margin >= -EPS.
 
@@ -174,10 +183,18 @@ def fastener_assembles(
     in the "fixed" condition.
 
     SCOPE LIMITS (each one makes the computed margin optimistic if violated):
-      - The "fixed" formula assumes T_b is a PROJECTED tolerance zone
-        (Y14.5 (P) modifier) at least as long as hole_a's part thickness.
-        Without that, angular error of the fixed feature over that
-        thickness is unmodelled and the fixed margin overstates clearance.
+      - The "fixed" formula is B-4, which is titled "FIXED FASTENER CASE WHEN
+        PROJECTED TOLERANCE ZONE IS USED" and assumes exactly that. B-4 warns
+        that "The preceding formulas do not provide sufficient clearance ...
+        when threaded holes or holes for tight-fitting members, such as dowels,
+        are out of square", and B-5 gives the alternative for that case:
+            H = F + T1 + T2 * (1 + 2P/D)
+        where P is the maximum projection of the fastener and D the minimum
+        depth of engagement. Note the multiplier lands on T2, the tapped or
+        tight-fitting hole's tolerance — not on T1. This module implements B-4
+        only, so applying it to a drawing WITHOUT a projected tolerance zone is
+        optimistic (unsafe). The procedural generator must emit projected zones
+        explicitly.
       - Datum shift between the two parts' datum reference frames is
         unmodelled; the derivation assumes the two DRFs coincide exactly.
       - Composite position tolerance, pattern-level (multi-fastener)
@@ -206,13 +223,18 @@ def fastener_assembles(
         )
 
     clearance_a = hole_a.mmc - fastener.mmc
-    pooled_tol = hole_a.position_tol + hole_b.position_tol
     if condition == "floating":
+        # B-3: "applied to each part individually" — the joint is limited by
+        # whichever part has the least slack of its own, never by their sum.
         clearance_b = hole_b.mmc - fastener.mmc
-        margin = clearance_a + clearance_b - pooled_tol
+        margin_a = clearance_a - hole_a.position_tol
+        margin_b = clearance_b - hole_b.position_tol
+        margin = min(margin_a, margin_b)
     else:
+        # B-4: H = F + T1 + T2, so both tolerances draw on hole_a's clearance.
         clearance_b = None
-        margin = clearance_a - pooled_tol
+        margin_a = margin_b = None
+        margin = clearance_a - (hole_a.position_tol + hole_b.position_tol)
 
     return Verdict(
         assembles=margin >= -EPS,
@@ -223,6 +245,13 @@ def fastener_assembles(
             "radial_slack": margin / 2.0,
             "clearance_a": clearance_a,
             "clearance_b": clearance_b,
+            "margin_a": margin_a,
+            "margin_b": margin_b,
+            "governing_part": (
+                None
+                if condition == "fixed"
+                else ("hole_a" if margin_a <= margin_b else "hole_b")
+            ),
             "position_tol_a": hole_a.position_tol,
             "position_tol_b": hole_b.position_tol,
             "hole_a_mmc": hole_a.mmc,
