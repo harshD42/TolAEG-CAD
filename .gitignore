@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+*.egg-info/
+build/
+dist/
+.venv/
+results/
+
+# Literature PDFs: ~617MB, fully reproducible via scripts/fetch_literature.sh.
+# The index and fetch log ARE tracked, so the corpus stays auditable.
+papers/literature/*.pdf
