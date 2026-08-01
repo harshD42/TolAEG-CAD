@@ -169,3 +169,48 @@ def test_it6_band_boundary_is_not_off_by_one():
     assert it_grade(10.1, 6) == pytest.approx(0.011)  # 10-18 band
     assert it_grade(18.0, 6) == pytest.approx(0.011)  # 10-18 band, upper bound
     assert it_grade(18.1, 6) == pytest.approx(0.013)  # 18-30 band
+
+
+def test_it12_to_it14_are_tabulated():
+    """ISO 273 assigns H12/H13/H14 to its three clearance-hole series, so the
+    generator cannot cite the standard without these grades."""
+    for grade in (12, 13, 14):
+        assert it_grade(20.0, grade) > 0.0
+
+
+@pytest.mark.parametrize("nominal, grade, expected_mm", [
+    # ISO 286-1:2010 Table 1. These are published in MILLIMETRES, not
+    # micrometres -- the table has a separate span label for IT12-IT18.
+    (4.0, 12, 0.12), (4.0, 13, 0.18), (4.0, 14, 0.30),
+    (8.0, 12, 0.15), (8.0, 13, 0.22), (8.0, 14, 0.36),
+    (14.0, 12, 0.18), (14.0, 13, 0.27), (14.0, 14, 0.43),
+])
+def test_it12_to_it14_match_iso286_table_1(nominal, grade, expected_mm):
+    assert it_grade(nominal, grade) == pytest.approx(expected_mm)
+
+
+def test_the_new_rows_did_not_land_a_thousand_times_too_small():
+    """ISO 286-1 publishes IT12-IT18 in mm while _IT_MICRONS stores um.
+
+    Pasting 0.43 straight into a micrometre table yields 0.00043 mm, which is
+    smaller than IT5 and would sail through every other test in this file.
+    IT14 must exceed IT8 at the same size, always.
+    """
+    for nominal in (4.0, 8.0, 14.0, 100.0, 400.0):
+        assert it_grade(nominal, 12) > it_grade(nominal, 8)
+        assert it_grade(nominal, 13) > it_grade(nominal, 12)
+        assert it_grade(nominal, 14) > it_grade(nominal, 13)
+
+
+def test_new_rows_span_every_size_band():
+    """A short row would silently misalign against _SIZE_BANDS."""
+    from tolcad.iso286 import _IT_MICRONS, _SIZE_BANDS
+    for grade in (12, 13, 14):
+        assert len(_IT_MICRONS[grade]) == len(_SIZE_BANDS)
+
+
+def test_existing_grades_are_untouched():
+    """117 values were verified against primary tables; this plan only appends."""
+    assert it_grade(4.0, 5) == pytest.approx(0.005)
+    assert it_grade(4.0, 8) == pytest.approx(0.018)
+    assert it_grade(14.0, 7) == pytest.approx(0.018)

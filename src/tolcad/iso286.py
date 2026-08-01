@@ -28,6 +28,11 @@ zc"). Verified against the primary tables on 2026-08-01: all 117 values in
 _IT_MICRONS (IT5-IT8) and _DEVIATION_MICRONS (H, g, h, k, p) across all 13 size
 bands match exactly, as do the band boundaries in _SIZE_BANDS. Zero discrepancies.
 
+IT12-IT14 were added on 2026-08-01 from the same ISO 286-1:2010 Table 1, all 13
+size bands each. NOTE the unit change: Table 1 publishes IT01-IT11 in micrometres
+and IT12-IT18 in millimetres, so these three rows were converted on entry. See the
+comment on _IT_MICRONS.
+
 Note on 'k': Table 5 splits the k column into "IT4 to IT7" and "up to and including
 IT3 and above IT7". The values tabulated below are the IT4-IT7 column; the standard
 gives ei = 0 for the other column. This module does not implement that second case
@@ -44,11 +49,25 @@ from tolcad.types import FeatureOfSize, FeatureType
 _SIZE_BANDS = [3, 6, 10, 18, 30, 50, 80, 120, 180, 250, 315, 400, 500]
 
 # IT grade tolerance, micrometres, indexed parallel to _SIZE_BANDS.
+#
+# UNIT TRAP. ISO 286-1:2010 Table 1 publishes IT01-IT11 in MICROMETRES and
+# IT12-IT18 in MILLIMETRES -- the table carries two separate span labels across
+# the grade columns. Everything below is micrometres, so the IT12-IT14 rows were
+# multiplied by 1000 on entry: the published 0,43 mm for IT14 at >10-18 is the
+# 430 here. Pasting the published figures directly would make them 1000x too
+# small, and 0.00043 mm is narrower than IT5 -- small enough to pass every
+# ordering-free test in the suite. tests/test_iso286.py pins the ordering
+# IT8 < IT12 < IT13 < IT14 specifically to catch that.
 _IT_MICRONS: dict[int, list[int]] = {
     5: [4, 5, 6, 8, 9, 11, 13, 15, 18, 20, 23, 25, 27],
     6: [6, 8, 9, 11, 13, 16, 19, 22, 25, 29, 32, 36, 40],
     7: [10, 12, 15, 18, 21, 25, 30, 35, 40, 46, 52, 57, 63],
     8: [14, 18, 22, 27, 33, 39, 46, 54, 63, 72, 81, 89, 97],
+    # ISO 273 assigns H12/H13/H14 to its fine/medium/coarse clearance-hole
+    # series, so the generator needs these three grades to cite the standard.
+    12: [100, 120, 150, 180, 210, 250, 300, 350, 400, 460, 520, 570, 630],
+    13: [140, 180, 220, 270, 330, 390, 460, 540, 630, 720, 810, 890, 970],
+    14: [250, 300, 360, 430, 520, 620, 740, 870, 1000, 1150, 1300, 1400, 1550],
 }
 
 # Fundamental deviation, micrometres. Uppercase = hole (EI), lowercase = shaft (es/ei).

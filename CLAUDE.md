@@ -6,8 +6,10 @@ Design spec: `docs/superpowers/specs/2026-07-31-tolerance-aware-cad-eval-design.
 
 ## Conventions
 
-- **All dimensions are millimetres (float).** ISO 286 tables publish micrometres;
-  convert at the table boundary and nowhere else.
+- **All dimensions are millimetres (float).** ISO 286-1 Table 1 publishes IT01-IT11
+  in micrometres but IT12-IT18 in millimetres; convert at the table boundary in
+  `iso286.py` and nowhere else. `_IT_MICRONS` is micrometres throughout, so the
+  IT12-IT14 rows were multiplied by 1000 on entry.
 - **Tier 1 is exact.** Closed-form ASME Y14.5. Compare with `EPS = 1e-9`, no looser.
 - **Tier 2 is statistical.** Monte Carlo. Always report a seed.
 - **`validation/` is optional and one-directional.** It may import core; core may never
