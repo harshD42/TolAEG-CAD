@@ -33,9 +33,25 @@ CITATION_PENDING_MARKER = "CITATION PENDING HUMAN VERIFICATION"
 ISO286_PLACEHOLDER_MARKER = "replace this line"
 
 # Fixed, seeded set of Tier 1 mates for the reliability measurement below.
-# Margins are chosen comfortably outside the boundary band so the measurement
-# reflects genuine perturbation stability rather than boundary exclusions.
+#
+# This set deliberately spans TWO regimes, per the module docstring in
+# tolcad/reliability.py:
+#   (1) Far-from-boundary mates (|margin| >> BOUNDARY_BAND * epsilon), where a
+#       flip would indicate a genuine bug rather than boundary noise.
+#   (2) SENSITIVE-BAND mates, with |margin| between BOUNDARY_BAND * epsilon
+#       (the exclusion threshold, currently 2*epsilon) and roughly 5*epsilon.
+#       These sit just outside exclusion but well within reach of a
+#       perturbation of magnitude epsilon, so a flip here is a real,
+#       detectable possibility rather than a tautology. Without band (2),
+#       every mate's margin is orders of magnitude larger than the maximum
+#       achievable perturbation, so "stability" would trivially measure
+#       1.0000 on every seed -- a tautology, not a measurement. See NB-2.
+#
+# With _RELIABILITY_EPSILON = 1e-4, the exclusion boundary is 2e-4 and the
+# targeted sensitive band is roughly [2e-4, 5e-4]. Sensitive-band mates below
+# are constructed with margin ~= +-3.5e-4, comfortably inside that band.
 _RELIABILITY_MATES: list[dict] = [
+    # --- far-from-boundary (regime 1) ---
     {
         "type": "virtual_condition",
         "pin": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0, "position_tol": 0.1},
@@ -68,6 +84,49 @@ _RELIABILITY_MATES: list[dict] = [
         "type": "fixed_fastener",
         "hole_a": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.40},
         "hole_b": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.40},
+        "fastener": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
+    },
+    # --- sensitive band (regime 2): |margin| ~= 3.5e-4, inside [2e-4, 5e-4] ---
+    {
+        # VC_hole = 8.5 - 0.24965 = 8.25035; VC_pin = 8.0 + 0.25 = 8.25;
+        # margin = +3.5e-4 (assembles, just outside the exclusion band).
+        "type": "virtual_condition",
+        "pin": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0, "position_tol": 0.25},
+        "hole": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.24965},
+    },
+    {
+        # VC_hole = 8.5 - 0.25035 = 8.24965; VC_pin = 8.0 + 0.25 = 8.25;
+        # margin = -3.5e-4 (fails, just outside the exclusion band).
+        "type": "virtual_condition",
+        "pin": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0, "position_tol": 0.25},
+        "hole": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.25035},
+    },
+    {
+        # margin = (8.5-8.0)+(8.5-8.0) - (0.5+0.49965) = 1.0 - 0.99965 = +3.5e-4
+        "type": "floating_fastener",
+        "hole_a": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.5},
+        "hole_b": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.49965},
+        "fastener": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
+    },
+    {
+        # margin = (8.5-8.0)+(8.5-8.0) - (0.5+0.50035) = 1.0 - 1.00035 = -3.5e-4
+        "type": "floating_fastener",
+        "hole_a": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.5},
+        "hole_b": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.50035},
+        "fastener": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
+    },
+    {
+        # margin = (8.5-8.0) - (0.25+0.24965) = 0.5 - 0.49965 = +3.5e-4
+        "type": "fixed_fastener",
+        "hole_a": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.25},
+        "hole_b": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.24965},
+        "fastener": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
+    },
+    {
+        # margin = (8.5-8.0) - (0.25+0.25035) = 0.5 - 0.50035 = -3.5e-4
+        "type": "fixed_fastener",
+        "hole_a": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.25},
+        "hole_b": {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.25035},
         "fastener": {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0},
     },
 ]
@@ -117,11 +176,17 @@ def main() -> int:
         _RELIABILITY_MATES, epsilon=_RELIABILITY_EPSILON, seed=_RELIABILITY_SEED
     )
     reliability_ok = reliability_tests_pass and stability.value >= RELIABILITY_THRESHOLD
+    band = (
+        f"|margin| in [{stability.min_abs_margin:.2e}, {stability.max_abs_margin:.2e}]"
+        if stability.tested
+        else "no mates outside the exclusion band"
+    )
     record(
         "Checker reliability",
         reliability_ok,
         f"measured {stability.value:.4f} (tested={stability.tested}, "
-        f"excluded={stability.excluded}); threshold {RELIABILITY_THRESHOLD}",
+        f"excluded={stability.excluded}, tested {band}); "
+        f"threshold {RELIABILITY_THRESHOLD}",
     )
 
     record("Validation isolation", _pytest_passes("tests/test_architecture.py"),

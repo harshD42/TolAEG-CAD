@@ -62,11 +62,20 @@ class StabilityResult:
     value: fraction of tested (non-boundary) mates whose verdict survived perturbation.
     tested: number of mates outside the boundary band (actually tested).
     excluded: number of mates inside the boundary band (excluded from denominator).
+    min_abs_margin: smallest |margin| among tested mates (None if tested == 0).
+    max_abs_margin: largest |margin| among tested mates (None if tested == 0).
+        Reporting this range alongside `value` lets a reader see what band was
+        actually probed: a 1.0 result over mates with min_abs_margin >> epsilon
+        means "no instability detected far from the boundary," which is a much
+        weaker claim than a 1.0 result that includes mates close to the
+        exclusion threshold.
     """
 
     value: float
     tested: int
     excluded: int
+    min_abs_margin: float | None = None
+    max_abs_margin: float | None = None
 
     def __float__(self) -> float:
         """Allow StabilityResult to be used as a float in comparisons and arithmetic."""
@@ -128,6 +137,7 @@ def verdict_stability(mates: list[dict], epsilon: float, seed: int) -> Stability
 
     rng = np.random.default_rng(seed)
     tested = stable = excluded = 0
+    tested_abs_margins: list[float] = []
 
     for mate in mates:
         base = check(mate)
@@ -135,8 +145,15 @@ def verdict_stability(mates: list[dict], epsilon: float, seed: int) -> Stability
             excluded += 1
             continue  # genuinely ambiguous; a flip here is correct
         tested += 1
+        tested_abs_margins.append(abs(base.margin))
         if check(_perturb(mate, epsilon, rng)).assembles == base.assembles:
             stable += 1
 
     stability_value = 1.0 if tested == 0 else stable / tested
-    return StabilityResult(value=stability_value, tested=tested, excluded=excluded)
+    return StabilityResult(
+        value=stability_value,
+        tested=tested,
+        excluded=excluded,
+        min_abs_margin=min(tested_abs_margins) if tested_abs_margins else None,
+        max_abs_margin=max(tested_abs_margins) if tested_abs_margins else None,
+    )
