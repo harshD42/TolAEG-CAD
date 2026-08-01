@@ -15,19 +15,34 @@ cannot be outgrown by a change to the feature tables.
 
 MARGINS AND WHY THESE VALUES. The sampler's largest allowable position
 tolerance is (14.5 - 12.0) = 2.5 mm diametral, and the difficulty ladder
-applies at most ~1.4x of it, so a feature's axis can sit up to ~1.75 mm off
-nominal in any direction. Hole size can also grow by upper_dev (+0.2 mm
-diameter, +0.1 mm radius).
+applies at most 1.34x of it (sampler._TOL_FRACTION_RANGE[4] hi), so the applied
+tolerance tops out at 2.5 * 1.34 = 3.35 mm diametral and a feature's axis can
+sit up to 3.35 / 2 = 1.675 mm off nominal in any direction. Hole size can also
+grow by upper_dev (+0.2 mm diameter, +0.1 mm radius). One feature's edge can
+therefore reach 1.675 + 0.1 = 1.775 mm past where nominal geometry puts it.
 
   _MIN_WALL_MM = 4.0   Two neighbours leaning toward each other consume at
-                       worst 1.75 + 1.75 + 0.1 + 0.1 = 3.7 mm, so 4.0 mm of
+                       worst 1.675 + 1.675 + 0.1 + 0.1 = 3.55 mm, so 4.0 mm of
                        nominal material between them still leaves a ligament.
   _EDGE_MARGIN_MM = 5.0  A single feature leaning at an edge consumes at worst
-                       1.75 + 0.1 = 1.85 mm, so 5.0 mm leaves ~2.7x headroom.
+                       1.675 + 0.1 = 1.775 mm, so 5.0 mm leaves ~2.8x headroom.
+
+Ø14.5 (M12 loose) IS NOT THE WIDEST FEATURE, and that is fine. An iso_fit mate
+is laid out at its own nominal, which the sampler draws up to Ø25, so Ø25 is
+the widest thing on a plate. It does not enter the derivation above because it
+carries position_tol 0.0 and an IT7-class band (~0.021 mm at 25 mm, ~0.01 mm on
+the radius), three orders below the clearance-hole case. The binding case for
+margin sizing is the widest feature that carries a POSITION TOLERANCE, and that
+is the M12 loose clearance hole.
 
 Both are nominal-geometry margins: the reference STEP is drilled at nominal
 positions and nominal sizes. The tolerance zones above are what the margins are
 sized to survive, not what the geometry models.
+
+tests/gen/test_layout.py re-derives the 3.55 / 1.775 requirement from
+features._CLEARANCE_HOLE_MM and sampler._TOL_FRACTION_RANGE at test time, so
+raising the ladder or widening the clearance table cannot leave these two
+constants quietly too small.
 """
 
 from __future__ import annotations

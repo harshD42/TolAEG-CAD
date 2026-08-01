@@ -30,12 +30,27 @@ class MateSpec:
     # Tier 2 (iso_fit) is a Monte Carlo estimate, so its verdict depends on the
     # sampling seed. H7/h6 is line-to-line at MMC and genuinely flips label
     # across seeds, so leaving the seed implicit made the published label an
-    # accident of tolcad.checker's fallback default. CLAUDE.md requires Tier 2
+    # accident of tolcad.checker's fallback default. (H7/h6 is no longer
+    # SAMPLED -- it left features.SUPPORTED_FITS in commit 422c21f for exactly
+    # that reason -- but iso286.fit_from_designation still supports it, so a
+    # hand-written spec can still name it, and the general point holds for any
+    # fit whose worst-case clearance lands near zero.) CLAUDE.md requires Tier 2
     # to always report a seed; carrying it here is what puts it in the sidecar
     # JSON a reproducer actually reads, not just in Verdict.detail.
     # Defaults mirror tolcad.checker's fallbacks; the sampler always sets them.
     mc_seed: int = 0
     mc_n: int = 100_000
+    # ASME Y14.5 Appendix B-4 -- the formula y14_5.fastener_assembles implements
+    # for the fixed case -- is titled "...When Projected Tolerance Zone Is Used"
+    # and assumes exactly that. y14_5.py states the precondition outright: apply
+    # B-4 without a projected zone and the margin is OPTIMISTIC, i.e. unsafe.
+    # B-5 covers the non-projected case with a (1 + 2P/D) multiplier on T2, and
+    # tolcad does NOT implement it. Recording the projection here is how the
+    # published schema states the condition its verdict is valid under.
+    # The projection is the thickness of the part the fastener crosses before
+    # reaching the tapped feature. Required and positive for fixed_fastener;
+    # None for every other kind, since no other formula has a projection term.
+    projected_zone_mm: float | None = None
 
     def __post_init__(self) -> None:
         if self.mc_n <= 0:
@@ -43,6 +58,12 @@ class MateSpec:
         if self.kind not in VALID_KINDS:
             raise ValueError(
                 f"unknown mate kind {self.kind!r}; have {sorted(VALID_KINDS)}"
+            )
+        if self.kind != "fixed_fastener" and self.projected_zone_mm is not None:
+            raise ValueError(
+                f"projected_zone_mm applies only to fixed_fastener (Y14.5 B-4); "
+                f"{self.kind} carries no projection term, got "
+                f"{self.projected_zone_mm}"
             )
         if self.kind == "iso_fit":
             if not self.designation:
@@ -59,6 +80,15 @@ class MateSpec:
                 raise ValueError(f"{self.kind} mate requires hole_a")
             if self.hole_b is None:
                 raise ValueError(f"{self.kind} mate requires hole_b")
+            if self.kind == "fixed_fastener" and not (
+                self.projected_zone_mm is not None and self.projected_zone_mm > 0.0
+            ):
+                raise ValueError(
+                    "fixed_fastener requires a positive projected_zone_mm: "
+                    "y14_5 implements ASME Y14.5 B-4, which assumes a projected "
+                    "tolerance zone, and is optimistic without one. Got "
+                    f"{self.projected_zone_mm}"
+                )
 
     def to_check_dict(self) -> dict:
         """Return the dict accepted by tolcad.checker.check.
@@ -113,6 +143,34 @@ class AssemblySpec:
     def __post_init__(self) -> None:
         if not self.mates:
             raise ValueError("an assembly needs at least one mate")
+        # CROSS-OBJECT INVARIANT, and the one that carries the safety meaning.
+        # MateSpec can only check that a fixed fastener HAS a projection;
+        # whether the projection is long enough is a fact about the plate the
+        # fastener crosses, which only the assembly knows.
+        #
+        # ASME Y14.5 B-4 assumes the tapped hole's tolerance zone is projected
+        # through the full thickness of the part the fastener passes through
+        # before it reaches the tapped feature. build.py drills part_a to
+        # spec.plate_thickness_mm, so a projection shorter than that leaves
+        # part of the joint outside the zone -- exactly the under-projected
+        # condition y14_5.fixed_fastener_tolerance calls OPTIMISTIC, i.e.
+        # unsafe. B-5 is the formula for that case and tolcad does not
+        # implement it, so an assembly whose verdict B-4 cannot support must
+        # not be constructible at all.
+        for index, mate in enumerate(self.mates):
+            if mate.kind != "fixed_fastener":
+                continue
+            if mate.projected_zone_mm < self.plate_thickness_mm:
+                raise ValueError(
+                    f"mate {index}: projected_zone_mm "
+                    f"{mate.projected_zone_mm} is shorter than "
+                    f"plate_thickness_mm {self.plate_thickness_mm}. ASME Y14.5 "
+                    f"B-4 -- the formula y14_5.fastener_assembles applies to a "
+                    f"fixed fastener -- assumes the zone is projected through "
+                    f"the whole part the fastener crosses. Under-projected, "
+                    f"its margin is OPTIMISTIC (unsafe); the non-projected "
+                    f"case is B-5, which tolcad does not implement."
+                )
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, sort_keys=True)

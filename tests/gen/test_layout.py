@@ -7,7 +7,7 @@ from tolcad.gen.layout import (
     _EDGE_MARGIN_MM, _MIN_WALL_MM, feature_pitch_mm, feature_positions_mm,
     feature_radii_mm, minimum_plate_size_mm,
 )
-from tolcad.gen.sampler import MAX_DIFFICULTY, sample_assembly
+from tolcad.gen.sampler import _TOL_FRACTION_RANGE, MAX_DIFFICULTY, sample_assembly
 
 _LARGEST_RADIUS_MM = max(
     clearance_hole_for(f, "loose")["nominal"] for f in FASTENER_SIZES
@@ -64,3 +64,98 @@ def test_plate_size_is_serialised_in_the_sidecar():
     spec = sample_assembly(0, 4)
     assert '"plate_size_mm"' in spec.to_json()
     assert '"plate_thickness_mm"' in spec.to_json()
+
+
+def _worst_case_radial_excursion_mm() -> float:
+    """How far one feature's edge can reach past nominal, from the tables.
+
+    Re-derived at test time from the two tables the number actually depends on:
+
+      * the clearance-hole table (via the public clearance_hole_for), which
+        fixes the largest allowable position tolerance -- hole MMC minus
+        fastener, exactly as sampler._tier1_mate computes it -- and the largest
+        hole growth, upper_dev on the diameter;
+      * sampler._TOL_FRACTION_RANGE, whose largest hi is the most of that
+        allowable the difficulty ladder ever applies.
+
+    The allowable is halved for a fixed fastener, so the floating case above is
+    the worst one. Position tolerance is diametral, hence the /2 to get a
+    radial axis offset.
+    """
+    largest_allowable = 0.0
+    largest_radius_growth = 0.0
+    for fastener_mm in FASTENER_SIZES:
+        for grade in ("close", "normal", "loose"):
+            hole = clearance_hole_for(fastener_mm, grade)
+            mmc = hole["nominal"] + hole["lower_dev"]
+            largest_allowable = max(largest_allowable, mmc - fastener_mm)
+            largest_radius_growth = max(largest_radius_growth, hole["upper_dev"] / 2.0)
+    largest_fraction = max(hi for _lo, hi in _TOL_FRACTION_RANGE.values())
+    return largest_allowable * largest_fraction / 2.0 + largest_radius_growth
+
+
+def test_the_margin_constants_still_cover_the_tables_they_came_from():
+    """Ties the floors to the ladder and the clearance table they derive from.
+
+    The literal floors below are a second, cruder line: they are fixed numbers
+    a human checked once, so they go stale silently. Raise
+    _TOL_FRACTION_RANGE[4] hi from 1.34 to 1.7 and two neighbours consume
+    2 * (2.5 * 1.7 / 2) + 0.2 = 4.45 mm against a 4.0 mm wall -- a degenerate
+    ligament that every literal-only test in the repo waves through. This one
+    fires.
+
+    STILL NOT SELF-REFERENTIAL: the requirement is computed from features.py
+    and sampler.py and compared against layout.py's constants. It is a
+    cross-module comparison, which is exactly what the self-referential
+    pitch/edge assertions above are not.
+    """
+    required_wall = 2.0 * _worst_case_radial_excursion_mm()
+    required_edge = _worst_case_radial_excursion_mm()
+
+    assert _MIN_WALL_MM >= required_wall - 1e-9, (
+        f"_MIN_WALL_MM {_MIN_WALL_MM} is below the {required_wall} mm the "
+        f"clearance table and the difficulty ladder now demand between two "
+        f"features leaning toward each other"
+    )
+    assert _EDGE_MARGIN_MM >= required_edge - 1e-9, (
+        f"_EDGE_MARGIN_MM {_EDGE_MARGIN_MM} is below the {required_edge} mm "
+        f"the clearance table and the difficulty ladder now demand at an edge"
+    )
+
+
+def test_the_margin_constants_are_actually_large_enough():
+    """The other margin tests compare against these constants, so they cannot
+    fail if the constants go to zero. This one spells the numbers out.
+
+    A zero wall makes adjacent holes exactly tangent. The containment test in
+    test_build.py cannot catch that either, because tangency has zero
+    intersection volume -- it would sail through as a degenerate B-rep with no
+    ligament between neighbouring features.
+
+    THE ARITHMETIC, reconciled with layout.py. The widest feature that carries
+    a position tolerance is Ø14.5 (M12 loose); its allowable is 14.5 - 12.0 =
+    2.5 mm diametral, the ladder applies at most 1.34x of it, so the applied
+    tolerance is 3.35 mm diametral and an axis sits at most 3.35 / 2 = 1.675 mm
+    off nominal. A radius can grow another 0.1 mm. Two neighbours leaning
+    together therefore consume 3.55 mm; one leaning at an edge consumes
+    1.775 mm.
+
+    The 3.7 / 1.85 literals below are the original figures, computed with the
+    axis offset rounded up to 1.75 mm. They are kept BECAUSE they are looser
+    than the exact 3.55 / 1.775 -- a conservative fixed floor that holds even
+    if the derived one above is ever mis-derived.
+
+    Ø25 iso_fit bores are wider than Ø14.5 and do not change any of this: they
+    carry position_tol 0.0 and an IT7-class band (~0.01 mm on the radius), so
+    they are never the binding case for a margin sized against position error.
+    """
+    from tolcad.gen.layout import _EDGE_MARGIN_MM, _MIN_WALL_MM
+
+    assert _MIN_WALL_MM >= 3.7, (
+        f"_MIN_WALL_MM {_MIN_WALL_MM} leaves no ligament between two features "
+        f"leaning toward each other"
+    )
+    assert _EDGE_MARGIN_MM >= 1.85, (
+        f"_EDGE_MARGIN_MM {_EDGE_MARGIN_MM} lets a feature leaning at the edge "
+        f"break out of the plate"
+    )

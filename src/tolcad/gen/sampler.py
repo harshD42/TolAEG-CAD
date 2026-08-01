@@ -12,6 +12,7 @@ import numpy as np
 
 from tolcad.gen.features import (
     FASTENER_SIZES, SUPPORTED_FITS, clearance_hole_for, iso_fit_mate_features,
+    tapped_hole_for,
 )
 from tolcad.gen.layout import plate_size_for_mates
 from tolcad.gen.spec import AssemblySpec, MateSpec
@@ -48,6 +49,18 @@ _TIER1_KINDS = ("floating_fastener", "fixed_fastener")
 _MC_SEED_BASE = 10_000
 _MC_SAMPLES = 100_000
 
+# Nominal diameters an iso_fit mate is drawn from. Named rather than inline so
+# tests/gen/test_features.py can exercise the disclosure at the sizes the
+# corpus ACTUALLY contains -- 12 and 16 both sit in the ISO band 10 < d <= 18,
+# which an arbitrary test nominal set can miss entirely.
+_ISO_FIT_NOMINALS_MM: tuple[float, ...] = (10.0, 12.0, 16.0, 20.0, 25.0)
+
+# The plate thickness the sampler builds to. Also the projection distance for a
+# fixed fastener: the fastener crosses part_a's full thickness before it reaches
+# the tapped feature in part_b. Kept as one constant so the recorded projected
+# zone and the built geometry cannot drift apart.
+_PLATE_THICKNESS_MM = 8.0
+
 
 def _mc_seed_for(seed: int, mate_index: int) -> int:
     """Deterministic, collision-free Monte Carlo seed for one mate."""
@@ -72,20 +85,30 @@ def _tier1_mate(rng: np.random.Generator, difficulty: int) -> MateSpec:
     tol_a = round(allowable * float(rng.uniform(lo, hi)), 4)
     tol_b = round(allowable * float(rng.uniform(lo, hi)), 4)
 
+    # hole_a is always the clearance hole the fastener passes through. hole_b is
+    # a second clearance hole for a floating joint, but a TAPPED hole for a fixed
+    # one -- that difference is what lets the exported STEP express which Y14.5
+    # formula applies. Without it the two kinds were byte-identical geometry
+    # carrying different ground truth, which is unlearnable by construction.
+    hole_b = hole if kind == "floating_fastener" else tapped_hole_for(fastener_mm)
+
     return MateSpec(
         kind=kind,
         nominal_mm=fastener_mm,
         hole_a=dict(hole, position_tol=tol_a),
-        hole_b=dict(hole, position_tol=tol_b),
+        hole_b=dict(hole_b, position_tol=tol_b),
         fastener=fastener,
         designation=None,
         position_tol_a=tol_a,
         position_tol_b=tol_b,
+        projected_zone_mm=(
+            _PLATE_THICKNESS_MM if kind == "fixed_fastener" else None
+        ),
     )
 
 
 def _iso_fit_mate(rng: np.random.Generator, mc_seed: int) -> MateSpec:
-    nominal = float(rng.choice((10.0, 12.0, 16.0, 20.0, 25.0)))
+    nominal = float(rng.choice(_ISO_FIT_NOMINALS_MM))
     designation = str(rng.choice(SUPPORTED_FITS))
     iso_fit_mate_features(nominal, designation)  # validates the pair
     return MateSpec(
@@ -117,4 +140,5 @@ def sample_assembly(seed: int, difficulty: int) -> AssemblySpec:
         difficulty=difficulty,
         mates=mates,
         plate_size_mm=plate_size_for_mates(mates),
+        plate_thickness_mm=_PLATE_THICKNESS_MM,
     )
