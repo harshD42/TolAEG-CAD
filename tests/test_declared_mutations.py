@@ -5,9 +5,17 @@ test to notice (or, for expect="pass", to be unmoved). This is the automation of
 a practice that was previously manual and evaporated with the shell session.
 """
 
+import pathlib
+
 import pytest
 
-from tests.mutation_registry import REGISTRY, DeclaredMutation, run_declared_mutation
+from tests import mutation_registry
+from tests.mutation_registry import (
+    REGISTRY,
+    DeclaredMutation,
+    _write_bytes_resiliently,
+    run_declared_mutation,
+)
 
 
 @pytest.mark.mutation
@@ -50,6 +58,45 @@ def test_an_ambiguous_patch_is_rejected():
         run_declared_mutation(ambiguous)
 
 
+def test_a_transient_write_failure_is_retried_then_succeeds(tmp_path, monkeypatch):
+    """The restore write must survive a transient OSError, not give up on it.
+
+    This is not hypothetical: a single `OSError: [Errno 22] Invalid argument`
+    on the restore write left src/tolcad/reliability.py mutated in the working
+    tree on 2026-08-01.
+    """
+    monkeypatch.setattr(mutation_registry, "_WRITE_BACKOFF_S", 0.0)
+    target = tmp_path / "f.bin"
+    real_write = pathlib.Path.write_bytes
+    calls = {"n": 0}
+
+    def flaky(self, data):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise OSError(22, "Invalid argument")
+        return real_write(self, data)
+
+    monkeypatch.setattr(pathlib.Path, "write_bytes", flaky)
+    _write_bytes_resiliently(target, b"restored")
+    monkeypatch.undo()
+
+    assert calls["n"] == 3
+    assert target.read_bytes() == b"restored"
+
+
+def test_a_persistent_write_failure_is_raised_not_swallowed(tmp_path, monkeypatch):
+    """A tree left mutated must be loud. Silently returning would be the worst
+    outcome this whole module exists to prevent."""
+    monkeypatch.setattr(mutation_registry, "_WRITE_BACKOFF_S", 0.0)
+
+    def always_fails(self, data):
+        raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr(pathlib.Path, "write_bytes", always_fails)
+    with pytest.raises(OSError):
+        _write_bytes_resiliently(tmp_path / "f.bin", b"x")
+
+
 def test_an_invalid_expectation_is_rejected():
     with pytest.raises(ValueError, match="expect"):
         DeclaredMutation(
@@ -78,11 +125,31 @@ _CRITICAL_GUARDS = frozenset({
     "m12-clearance-diameter",
     "fastener-upper-dev-nonzero",
     "mc-seed-base-shifted",
+    # Instances 2 and 4. The design spec's Layer 3 seed table named a
+    # `reliability` entry; the plan silently substituted another and left both
+    # instances covered by nothing until this was caught in review.
+    "reliability-perturbation-neutered",
+    "reliability-perturbation-tripled",
 })
 
 
 def test_the_registry_still_covers_every_critical_guard():
-    """An entry must not be deletable to silence a failure."""
+    """An entry must not be deletable to silence a failure.
+
+    KNOWN LIMIT -- READ THIS BEFORE RELYING ON IT. This is a PAPER-TRAIL
+    mechanism, not a technical guarantee. It catches deleting an entry from
+    REGISTRY alone; it is defeated by a single commit that removes the entry
+    AND its name from _CRITICAL_GUARDS above. Nothing here can prevent that,
+    because _CRITICAL_GUARDS lives in the same file and the same review.
+    What it buys is that the deletion has to be explicit and shows up in the
+    diff next to this comment, so it cannot happen by accident or by silence.
+    This is design spec section 9's open question, stated plainly rather than
+    left for a future reader to rediscover as a surprise.
+
+    Related and equally uncovered: nothing forces a NEW guard to be
+    registered, so a future test protecting a new published number could be
+    added with no entry and no layer would notice.
+    """
     present = {m.name for m in REGISTRY}
     missing = _CRITICAL_GUARDS - present
     assert not missing, (

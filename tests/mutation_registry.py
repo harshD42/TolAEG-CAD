@@ -22,10 +22,40 @@ import dataclasses
 import pathlib
 import subprocess
 import sys
+import time
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 _VALID_EXPECTATIONS = ("fail", "pass")
+
+# Bounded retry around the mutate/restore writes. See _write_bytes_resiliently.
+_WRITE_ATTEMPTS = 5
+_WRITE_BACKOFF_S = 0.05
+
+
+def _write_bytes_resiliently(path: pathlib.Path, data: bytes) -> None:
+    """Write `data` to `path`, retrying transient OS-level write failures.
+
+    OBSERVED, NOT HYPOTHETICAL. On Windows, 2026-08-01, two registry entries
+    targeting the SAME file back to back raised
+    `OSError: [Errno 22] Invalid argument` on the RESTORE write and left
+    src/tolcad/reliability.py mutated in the working tree. The write that had
+    just succeeded milliseconds earlier is the likely trigger (virus scanner or
+    write-back still holding the freshly written file). It reproduced once in
+    roughly a dozen runs.
+
+    A one-shot write is therefore not good enough for a mechanism whose worst
+    outcome is a corrupted working tree. Retries are bounded; a persistent
+    failure is re-raised for the caller to convert into a loud, named error.
+    """
+    for attempt in range(_WRITE_ATTEMPTS):
+        try:
+            path.write_bytes(data)
+            return
+        except OSError:
+            if attempt == _WRITE_ATTEMPTS - 1:
+                raise
+            time.sleep(_WRITE_BACKOFF_S * (attempt + 1))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -115,10 +145,21 @@ def run_declared_mutation(m: DeclaredMutation) -> None:
         )
 
     try:
-        path.write_bytes(mutated)
+        _write_bytes_resiliently(path, mutated)
         passed_under_mutation = _target_test_passes(m.test)
     finally:
-        path.write_bytes(original)
+        try:
+            _write_bytes_resiliently(path, original)
+        except OSError as exc:
+            # Deliberately raised from `finally`, masking any in-flight error:
+            # a mutated file left on disk is strictly the worse outcome and
+            # must be the message the operator sees first.
+            raise AssertionError(
+                f"{m.name}: could NOT restore {m.target} after "
+                f"{_WRITE_ATTEMPTS} attempts. THE FILE IS LEFT MUTATED. Run "
+                f"`git checkout -- {m.target}` before doing anything else, "
+                f"then re-run. Underlying error: {exc!r}"
+            ) from exc
 
     if path.read_bytes() != original:
         raise AssertionError(
@@ -254,6 +295,54 @@ REGISTRY: tuple[DeclaredMutation, ...] = (
         ),
     ),
     DeclaredMutation(
+        name="reliability-perturbation-neutered",
+        target="src/tolcad/reliability.py",
+        find='_PERTURBABLE = ("nominal", "lower_dev", "upper_dev", "position_tol")',
+        replace="_PERTURBABLE = ()",
+        test="tests/test_reliability.py::test_positive_control_detects_instability",
+        expect="fail",
+        why=(
+            "HISTORICAL INSTANCE 2: a reliability metric MATHEMATICALLY "
+            "INCAPABLE of returning below 1.0. With _PERTURBABLE empty, "
+            "_perturb returns an unmodified deepcopy, check() is deterministic, "
+            "so every verdict trivially survives and verdict_stability can only "
+            "ever return 1.0 -- while still reporting a healthy tested count, "
+            "which is what made the original so hard to see. The positive "
+            "control is the only guard that asserts the metric CAN report "
+            "instability. Note what does NOT catch this: Gate A's reliability "
+            "criterion reads 1.0000 under this mutation and happily passes, "
+            "which is why this entry and reliability-perturbation-tripled are "
+            "separate experiments rather than one."
+        ),
+    ),
+    DeclaredMutation(
+        name="reliability-perturbation-tripled",
+        target="src/tolcad/reliability.py",
+        find="rng.uniform(-epsilon, epsilon)",
+        replace="rng.uniform(-3.0 * epsilon, 3.0 * epsilon)",
+        test=(
+            "tests/test_gate_a.py::"
+            "test_gate_a_reliability_criterion_holds_for_the_real_measurement"
+        ),
+        expect="fail",
+        why=(
+            "HISTORICAL INSTANCE 4: a Gate A measurement with 1000x headroom -- "
+            "a criterion so far from its threshold that no degradation could "
+            "move it. This is the headroom probe the design spec's seed table "
+            "calls for: perturb the measured quantity by an amount that ought "
+            "to matter and require Gate A's reliability criterion to notice. "
+            "Tripling the perturbation while leaving the exclusion band at "
+            "epsilon takes the mean over the 200 pre-registered seeds from "
+            "0.9982 to 0.9068, below the 0.95 threshold. The bound is honest "
+            "and narrow: 2x measures 0.9518 and is NOT caught. So the headroom "
+            "is roughly 2-3x, which is documented in the target test's "
+            "docstring and must be re-measured if the mate set or epsilon "
+            "changes. The unit positive control does NOT catch this mutation "
+            "(more flips still means value < 1.0), so neither this entry nor "
+            "reliability-perturbation-neutered subsumes the other."
+        ),
+    ),
+    DeclaredMutation(
         name="mc-seed-base-shifted",
         target="tests/gen/test_features.py",
         find='"seed": 12345, "n": 100_000}).assembles',
@@ -261,11 +350,20 @@ REGISTRY: tuple[DeclaredMutation, ...] = (
         test="tests/gen/test_features.py::test_supported_fits_still_contain_both_verdict_classes",
         expect="pass",
         why=(
-            "THE SEED-FISHING GUARD, and the only expect='pass' entry. This "
-            "control asserts the surviving ISO fit set still spans both verdict "
-            "classes. If that conclusion held only for seed 12345 it would be a "
-            "fished positive control -- one of the eleven historical instances. "
-            "Requiring it to survive an arbitrary reseed is what makes it honest."
+            "A NARROW TRIPWIRE, NOT A GENERAL SEED-ROBUSTNESS CHECK. Stated "
+            "precisely because the earlier wording overstated it. The mutation "
+            "IS load-bearing -- reseeding moves the H7/k6 Monte Carlo margin "
+            "from 0.68925 to 0.68617 -- but the guarded assertion is on the "
+            "BOOLEANS, and for every fit currently in SUPPORTED_FITS "
+            "assembles == (es <= 0), which is seed-invariant by construction "
+            "(see test_iso_fit_verdict_is_fixed_by_the_shaft_letter). So this "
+            "entry cannot presently fail for a seed-fishing reason. Its "
+            "reachable failure mode is a line-to-line fit such as H7/h6 "
+            "re-entering SUPPORTED_FITS -- exactly the Phase 3.5a "
+            "reintroduction path -- where the verdict stops being determined "
+            "by the shaft letter and starts depending on the draw. Kept "
+            "because it is cheap and that path is live, not because it "
+            "certifies the control against seed choice in general."
         ),
     ),
 )
