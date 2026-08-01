@@ -2,6 +2,24 @@
 
 An unreliable oracle attenuates every downstream correlation by sqrt(reliability),
 which can move Gate B's result across a pre-registered threshold. This measures it.
+
+SENSITIVITY AND INTERPRETATION:
+A verdict flips only if a perturbation shifts the margin far enough to cross the boundary
+(margin from positive to negative, or vice versa). The perturbation magnitude Δmargin is a
+sum of several signed uniform(-epsilon, +epsilon) draws, so it concentrates near zero with
+standard deviation roughly epsilon * sqrt(n_fields / 3). Moving margin by more than ~2*epsilon
+is a tail event.
+
+Practical consequence: This metric detects instability only for mates whose margin is within
+roughly 2-3*epsilon of zero. For a deterministic checker with comfortably larger margins,
+the metric reports 1.0 — which is the correct answer (no instability within the tested band),
+but NOT a proof that the checker is reliable in general. A 1.0 result means:
+- "No instability detected in mates with |margin| >= 2*epsilon" (the tested band)
+- NOT "the checker is proven reliable under all perturbations"
+
+If a design has all margins well outside the tested band, this metric cannot detect its
+instability — it will report 1.0. This is correct for the measurement definition but must
+not be mistaken for a strong guarantee.
 """
 
 from __future__ import annotations
@@ -43,9 +61,10 @@ class StabilityResult:
 def _perturb(mate: dict, epsilon: float, rng: np.random.Generator) -> dict:
     """Perturb mate parameters by uniform random ±epsilon.
 
-    Handles aliasing correctly: each distinct dict object is perturbed exactly once,
-    even if the mate structure contains the same dict object multiple times
-    (e.g., when hole_a and hole_b reference the same dict).
+    Each parameter in _PERTURBABLE that exists in a dict is perturbed by adding a value
+    from uniform(-epsilon, +epsilon). Handles aliasing correctly: each distinct dict object
+    is perturbed exactly once, even if the mate structure contains the same dict object
+    multiple times (e.g., when hole_a and hole_b reference the same dict).
     """
     out = copy.deepcopy(mate)
     seen_ids = set()
