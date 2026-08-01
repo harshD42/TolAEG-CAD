@@ -1596,17 +1596,373 @@ git commit -m "feat: Gate A report script"
 
 ---
 
+### Task 12: NIST conformance oracle harness
+
+**Files:**
+- Create: `validation/nist_pmi.py`
+- Test: `tests/test_nist_harness.py`
+
+**Interfaces:**
+- Consumes: nothing from core
+- Produces: `validation.nist_pmi.load_expected(path) -> dict[str, bool]`, `validation.nist_pmi.agreement(ours, expected) -> float`, `validation.nist_pmi.disagreements(ours, expected) -> list[str]`
+
+Spec v2 §7 adds the **NIST MBE PMI Validation and Conformance Test Suite** as a licence-free
+Gate A oracle. Reading its STEP AP242 semantic PMI requires OCCT XCAF (`XCAFDoc_DimTolTool`),
+which is a Phase 3 dependency — so this task builds the *comparison harness* only, exactly
+mirroring the TolAnalyst pattern. The actual comparison runs in Phase 3.
+
+CSV format: `part_id,assembles`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# tests/test_nist_harness.py
+import pytest
+from validation.nist_pmi import agreement, disagreements, load_expected
+
+
+def test_loads_expected_verdicts(tmp_path):
+    csv = tmp_path / "nist.csv"
+    csv.write_text("part_id,assembles\nFTC-06,true\nFTC-07,false\n", encoding="utf-8")
+    got = load_expected(csv)
+    assert got == {"FTC-06": True, "FTC-07": False}
+
+
+def test_agreement_is_fraction_of_matching_verdicts():
+    ours = {"FTC-06": True, "FTC-07": True}
+    expected = {"FTC-06": True, "FTC-07": False}
+    assert agreement(ours, expected) == pytest.approx(0.5)
+
+
+def test_disagreements_are_listed_for_root_causing():
+    ours = {"FTC-06": True, "FTC-07": True}
+    expected = {"FTC-06": True, "FTC-07": False}
+    assert disagreements(ours, expected) == ["FTC-07"]
+
+
+def test_no_overlap_is_an_error_not_a_silent_pass():
+    with pytest.raises(ValueError, match="no overlapping"):
+        agreement({"A": True}, {"B": True})
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_nist_harness.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'validation.nist_pmi'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# validation/nist_pmi.py
+"""Cross-check tolcad verdicts against the NIST MBE PMI Conformance Test Suite.
+
+Public, authoritative, licence-free — this is the oracle that lets Gate A be cleared
+without any commercial CAD licence.
+
+Parsing the suite's STEP AP242 semantic PMI requires OCCT XCAF and happens in Phase 3.
+This module only compares verdicts already extracted to CSV: part_id,assembles
+"""
+
+from __future__ import annotations
+
+import csv
+import pathlib
+
+
+def load_expected(path: str | pathlib.Path) -> dict[str, bool]:
+    """Read expected assembly verdicts keyed by NIST part id (e.g. FTC-06)."""
+    out: dict[str, bool] = {}
+    with open(path, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            out[row["part_id"]] = row["assembles"].strip().lower() == "true"
+    return out
+
+
+def agreement(ours: dict[str, bool], expected: dict[str, bool]) -> float:
+    """Fraction of shared part ids where our verdict matches the expected one."""
+    shared = set(ours) & set(expected)
+    if not shared:
+        raise ValueError("no overlapping part ids between the two verdict sets")
+    return sum(1 for k in shared if ours[k] == expected[k]) / len(shared)
+
+
+def disagreements(ours: dict[str, bool], expected: dict[str, bool]) -> list[str]:
+    """Part ids where verdicts differ. Gate A requires each to be root-caused."""
+    shared = set(ours) & set(expected)
+    return sorted(k for k in shared if ours[k] != expected[k])
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_nist_harness.py -v`
+Expected: PASS, 4 tests
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add validation/nist_pmi.py tests/test_nist_harness.py
+git commit -m "feat: NIST PMI conformance oracle harness"
+```
+
+---
+
+### Task 13: Checker reliability under perturbation
+
+**Files:**
+- Create: `src/tolcad/reliability.py`
+- Test: `tests/test_reliability.py`
+
+**Interfaces:**
+- Consumes: `check` from `tolcad.checker`, `Verdict`
+- Produces: `verdict_stability(mates: list[dict], epsilon: float, seed: int) -> float`
+
+Spec v2 §7 adds a **checker reliability ≥ 0.95** criterion, because correlation is attenuated
+by √(reliability) — an unreliable oracle silently shifts Gate B's result across a threshold.
+
+**What reliability means here.** Tier 1 is deterministic, so naive test-retest is trivially
+1.0 and measures nothing. The meaningful question is whether a perturbation *small relative to
+the decision margin* flips the verdict. Near the boundary a flip is **correct behaviour**, not
+unreliability — so cases with `|margin| < 10·epsilon` are excluded from the denominator and
+reported separately.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# tests/test_reliability.py
+import pytest
+from tolcad.reliability import verdict_stability
+
+HOLE = {"nominal": 8.5, "lower_dev": 0.0, "upper_dev": 0.2, "position_tol": 0.1}
+BOLT = {"nominal": 8.0, "lower_dev": -0.1, "upper_dev": 0.0}
+
+
+def _mate(position_tol: float) -> dict:
+    hole = dict(HOLE, position_tol=position_tol)
+    return {"type": "floating_fastener", "hole_a": hole, "hole_b": hole,
+            "fastener": dict(BOLT)}
+
+
+def test_far_from_boundary_verdicts_never_flip():
+    # Allowable is 0.5; these are all far from it in both directions.
+    mates = [_mate(t) for t in (0.05, 0.10, 0.15, 0.90, 0.95)]
+    assert verdict_stability(mates, epsilon=1e-6, seed=0) == pytest.approx(1.0)
+
+
+def test_near_boundary_cases_are_excluded_not_counted_as_failures():
+    # position_tol 0.5 sits exactly on the allowable boundary.
+    mates = [_mate(0.5)]
+    # All cases excluded -> stability is undefined, reported as 1.0 with zero denominator.
+    assert verdict_stability(mates, epsilon=1e-3, seed=0) == pytest.approx(1.0)
+
+
+def test_stability_is_deterministic_for_a_given_seed():
+    mates = [_mate(t) for t in (0.05, 0.2, 0.8)]
+    a = verdict_stability(mates, epsilon=1e-6, seed=7)
+    b = verdict_stability(mates, epsilon=1e-6, seed=7)
+    assert a == b
+
+
+def test_empty_input_rejected():
+    with pytest.raises(ValueError, match="at least one mate"):
+        verdict_stability([], epsilon=1e-6, seed=0)
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_reliability.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'tolcad.reliability'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# src/tolcad/reliability.py
+"""Gate A: verdict stability under input perturbation.
+
+An unreliable oracle attenuates every downstream correlation by sqrt(reliability),
+which can move Gate B's result across a pre-registered threshold. This measures it.
+"""
+
+from __future__ import annotations
+
+import copy
+
+import numpy as np
+
+from tolcad.checker import check
+
+# Cases whose margin is within this multiple of epsilon are genuinely ambiguous;
+# a flip there is correct behaviour, so they are excluded from the denominator.
+BOUNDARY_BAND = 10.0
+
+_PERTURBABLE = ("nominal", "lower_dev", "upper_dev", "position_tol")
+
+
+def _perturb(mate: dict, epsilon: float, rng: np.random.Generator) -> dict:
+    out = copy.deepcopy(mate)
+    for value in out.values():
+        if isinstance(value, dict):
+            for key in _PERTURBABLE:
+                if key in value:
+                    value[key] += float(rng.uniform(-epsilon, epsilon))
+    return out
+
+
+def verdict_stability(mates: list[dict], epsilon: float, seed: int) -> float:
+    """Fraction of non-boundary mates whose verdict survives an epsilon perturbation.
+
+    Returns 1.0 when every case falls inside the boundary band (nothing to test).
+    """
+    if not mates:
+        raise ValueError("need at least one mate to measure stability")
+
+    rng = np.random.default_rng(seed)
+    tested = stable = 0
+
+    for mate in mates:
+        base = check(mate)
+        if abs(base.margin) < BOUNDARY_BAND * epsilon:
+            continue  # genuinely ambiguous; a flip here is correct
+        tested += 1
+        if check(_perturb(mate, epsilon, rng)).assembles == base.assembles:
+            stable += 1
+
+    return 1.0 if tested == 0 else stable / tested
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_reliability.py -v`
+Expected: PASS, 4 tests
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/tolcad/reliability.py tests/test_reliability.py
+git commit -m "feat: verdict stability under perturbation (Gate A reliability)"
+```
+
+---
+
+### Task 14: Gate A report — v2 criteria
+
+**Files:**
+- Modify: `scripts/gate_a.py` (replace `main`)
+- Modify: `tests/test_gate_a.py` (extend)
+
+**Interfaces:**
+- Consumes: everything above
+- Produces: a Gate A table covering all seven spec v2 §7 criteria
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# tests/test_gate_a.py  (append)
+def test_gate_a_reports_v2_criteria():
+    result = subprocess.run(
+        [sys.executable, "scripts/gate_a.py"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    for criterion in [
+        "Y14.5 worked examples",
+        "NIST PMI conformance",
+        "TolAnalyst agreement",
+        "Monte Carlo convergence",
+        "Checker reliability",
+        "Validation isolation",
+    ]:
+        assert criterion in result.stdout, f"missing criterion: {criterion}"
+
+
+def test_gate_a_not_cleared_without_oracles():
+    """Missing oracles must never count as passes."""
+    result = subprocess.run(
+        [sys.executable, "scripts/gate_a.py"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    assert "NOT CLEARED" in result.stdout
+    assert result.returncode != 0
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_gate_a.py -v`
+Expected: FAIL — "NIST PMI conformance" and "Checker reliability" are absent from stdout
+
+- [ ] **Step 3: Replace `main` in `scripts/gate_a.py`**
+
+```python
+def main() -> int:
+    rows: list[tuple[str, str, str]] = []
+    passes: list[bool] = []
+
+    def record(name: str, ok: bool | None, note: str) -> None:
+        rows.append((name, {True: "PASS", False: "FAIL", None: "SKIP"}[ok], note))
+        passes.append(ok is True)
+
+    record("Y14.5 worked examples", _pytest_passes("tests/test_y14_5.py"),
+           "100% required")
+    record("Monte Carlo convergence", _pytest_passes("tests/test_convergence.py"),
+           "+/-0.5% at N=100k")
+    record("Checker reliability", _pytest_passes("tests/test_reliability.py"),
+           ">=0.95 verdict stability")
+    record("Validation isolation", _pytest_passes("tests/test_architecture.py"),
+           "no core imports")
+
+    # Oracles: populated in Phase 3, when generated geometry can feed both engines.
+    for name, path, threshold in (
+        ("NIST PMI conformance", NIST_EXPECTED, 1.00),
+        ("TolAnalyst agreement", TOLANALYST_EXPORT, AGREEMENT_THRESHOLD),
+    ):
+        if not path.exists():
+            record(name, None, f"no export at {path.name}")
+            continue
+        record(name, False, "harness ready; comparison runs in Phase 3")
+
+    width = max(len(r[0]) for r in rows)
+    print("\nGate A - checker correctness (blocking)\n")
+    for name, status, note in rows:
+        print(f"  {name:<{width}}  {status:<5}  {note}")
+
+    cleared = all(passes)
+    print(f"\nGate A: {'CLEARED' if cleared else 'NOT CLEARED'}\n")
+    return 0 if cleared else 1
+```
+
+Also add near the existing constants:
+
+```python
+NIST_EXPECTED = REPO / "data" / "nist_pmi_expected.csv"
+```
+
+- [ ] **Step 4: Run the full suite and the gate**
+
+Run: `pytest -v && python scripts/gate_a.py`
+Expected: all tests pass; Gate A prints six criteria, four PASS, two SKIP, NOT CLEARED.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/gate_a.py tests/test_gate_a.py
+git commit -m "feat: Gate A report covering spec v2 criteria"
+```
+
+---
+
 ## Plan completion state
 
-At the end of Task 11:
+At the end of Task 14:
 
 - Tier 1 closed-form checks: implemented, TDD'd, exact
 - Tier 2 Monte Carlo: implemented, seeded, convergence-tested
+- Checker reliability: measured under perturbation
 - Validation isolation: mechanically enforced
-- Gate A: **3 of 4 criteria passing**; TolAnalyst agreement blocked on the Phase 3 generator
+- Both oracle harnesses (NIST, TolAnalyst): built and tested
+- Gate A: **4 of 6 criteria passing**; both oracle comparisons blocked on the Phase 3 generator
 
-Gate A is not cleared by this plan and is not expected to be. Clearing it requires
-generated assemblies to feed both engines, which is Phase 3.
+Gate A is not cleared by this plan and is not expected to be. Clearing it requires generated
+geometry to feed both oracles, and reading NIST's STEP AP242 semantic PMI needs OCCT XCAF —
+a Phase 3 dependency. The gate script reports missing oracles as SKIP and exits non-zero;
+a missing oracle is never counted as a pass.
 
 ## Open items carried forward
 
