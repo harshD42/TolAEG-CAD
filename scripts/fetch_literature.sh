@@ -23,7 +23,19 @@ PAPERS=(
 "2110.10863|deep-generative-engineering-design-review"
 
 # --- CAD generation: LLM / program synthesis ---
-"2505.19713|cad-coder"
+# NOTE: two distinct papers are both titled "CAD-Coder". Do not conflate them.
+#   2505.14646 = Doris et al. (MIT), open-source VLM, code+weights released.
+#   2505.19713 = Guan et al. (Beihang), text-to-CAD with CoT + geometric reward.
+"2505.14646|cad-coder-mit"
+"2505.19713|cad-coder-beihang"
+"2412.14042|cad-recode"
+"2505.22914|cadrille"
+"2505.06507|text-to-cadquery"
+"2411.04954|cad-mllm"
+"2512.06328|recad"
+"2603.05607|dreamcad"
+"2603.04337|pointer-cad"
+"2601.09428|draw-it-like-euclid"
 "2508.10201|brepler"
 "2606.31252|embodied-cad"
 "2604.24479|zero-to-cad"
@@ -31,6 +43,11 @@ PAPERS=(
 "2604.10992|articad"
 "2607.05123|assemcad"
 "2602.03045|clarify-before-you-draw"
+
+# --- Foundational datasets / surveys ---
+"2105.09492|deepcad"
+"2409.17106|text2cad"
+"2505.08137|llm4cad-survey"
 
 # --- CAD benchmarks ---
 "2605.18430|text2cad-bench"
