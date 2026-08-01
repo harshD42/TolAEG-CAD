@@ -1,0 +1,87 @@
+name: CI
+
+# Two jobs, deliberately on different paths.
+#
+# `suite` is the per-push gate: full pytest suite (currently 402 tests,
+# ~1 minute) on both ubuntu-latest and windows-latest.
+#
+# `integrity` is Layer 2 (scripts/check_suite_integrity.py): cosmic-ray
+# mutation testing, ~25 minutes. A gate people route around is worse than
+# no gate, so it never runs on push -- only on manual dispatch or a weekly
+# schedule. See tests/test_suite_integrity_script.py for its own tests.
+#
+# WHAT THIS FILE ACTUALLY ADDS, precisely stated: the code path already
+# passes from an ambient, already-provisioned local interpreter (verified
+# locally before this workflow existed). A local clone reuses that ambient
+# interpreter, so it cannot prove the package installs from nothing. CI's
+# real contribution is proving `pip install -e ".[dev,gen]"` succeeds on a
+# bare runner, on both a Linux and a Windows Python 3.13, with no leftover
+# state from a prior install.
+#
+# WHY THE WINDOWS LEG DOES NOT FORCE `core.autocrlf=true`, contrary to an
+# earlier draft of this plan: that draft assumed forcing autocrlf=true on
+# checkout would "exercise the corruption mode" that once replaced this
+# repo's committed 396,445-byte STEP fixture with a 391,739-byte
+# CRLF-stripped blob. Measured, not assumed: that historical corruption
+# happened at COMMIT time (a contributor's `git add` with autocrlf=true and
+# no .gitattributes protection ran git's CRLF->LF clean filter and the
+# stripped blob is what got stored). CI never commits, only checks out an
+# already-decided blob, so there is nothing for an outer autocrlf=true
+# checkout to "exercise". Worse, it was measured to actively HIDE a
+# corrupted blob rather than expose one: cloning a deliberately
+# CRLF-stripped (391,739-byte) commit under core.autocrlf=false or
+# core.autocrlf=input reproduces the corrupted 391,739 bytes on checkout,
+# but core.autocrlf=true re-inserts a CR before every bare LF on checkout
+# and silently reconstructs the original 396,445 bytes, byte-for-byte and
+# hash-for-hash identical -- a false-negative "heal", not a detector. See
+# tests/test_gitattributes_clone.py, which is the actual detector: it
+# clones with core.autocrlf explicitly set to true, input, AND false via
+# its own nested `git -c core.autocrlf=...  clone`, independent of whatever
+# the outer runner's ambient git config is. Because that parametrization is
+# already inside the test, the outer checkout step needs no autocrlf
+# override on either platform to get full coverage of the failure mode.
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+
+jobs:
+  suite:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install (fresh interpreter, proves the extras resolve)
+        run: pip install -e ".[dev,gen]"
+
+      - name: Full suite
+        run: python -m pytest -q
+
+  integrity:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: pip install -e ".[dev,gen]"
+
+      - name: Layer 2 -- mutation-score integrity gate (~25 min)
+        run: python scripts/check_suite_integrity.py
