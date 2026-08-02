@@ -24,6 +24,9 @@ Design spec: `docs/superpowers/specs/2026-07-31-tolerance-aware-cad-eval-design.
   checker from disk, so an overlapping run can report a Gate A number measured
   against a mutated checker. `tests/conftest.py` fails the run if the tree is
   left dirty; it cannot detect corruption that existed only *during* the run.
+  This is now enforced, not merely advised: `run_declared_mutation` holds
+  `.mutation-in-progress` at the repo root, and both scripts exit 2 with a
+  recovery procedure rather than measuring a mutated checker.
 
 ## Commands
 
