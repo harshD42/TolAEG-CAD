@@ -79,3 +79,25 @@ Eleven historical instances of "the test or metric that cannot fail", plus sever
 found while building the detector itself, including four tests that could not fail
 INSIDE the anti-vacuity layer. Awareness has demonstrably failed as a control: the
 pattern was in memory and in every review prompt and three new instances still landed.
+
+## RECONCILIATION NOTE, appended 2026-08-01 by close-out Task 8 (APPEND-ONLY)
+
+This inventory is a frozen record of the repo state at the commit named above and
+is NOT REWRITTEN. Four of its figures have since been superseded:
+
+- line 10, the ladder, still holds (d1 19.5 / d2 32.9 / d3 52.9 / d4 69.1) and is
+  now pinned executably by `tests/gen/test_ladder_pin.py`.
+- line 11, `coverage floor 94.12` and `MEASURED 93.85 / FLOOR 93.35`: superseded.
+  Both pins are now TWO-SIDED at COVERAGE_MEASURED 94.74 and MUTATION_MEASURED
+  95.89, tolerance 0.50 each. The current tree measures mutation 100.00, which the
+  two-sided pin correctly reports as FAIL; that is the control working and it must
+  NOT be re-pinned outside P1.5.
+- B1's `~12 untriaged survivors`: superseded and unsourced. The last enumerated
+  count is 21 at run 3; the current count is unknown.
+- line 78's `Eleven historical instances`: superseded. The design spec's section 1
+  table enumerates TWELVE; section 8's distribution omits the Unencoded row.
+
+Canonical values, provenance, and the reason each figure was superseded:
+`docs/superpowers/specs/2026-08-01-ledger-reconciliation.md` (tracked).
+The stopping criterion's worked observation table, previously existing only in an
+agent transcript: `docs/superpowers/specs/2026-08-01-observation-assignment.md`.
