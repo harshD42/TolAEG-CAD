@@ -19,3 +19,10 @@ data/nist_pmi/
 .coverage
 htmlcov/
 *.sqlite
+
+# Held by tests/mutation_registry.mutation_lock() while a declared mutation has
+# a src/ file mutated on disk; scripts/gate_a.py and
+# scripts/check_suite_integrity.py refuse to start while it exists. Runtime
+# state, never committed -- and if it were tracked, every mutation run would
+# dirty the tree and trip the O-B finalizer in tests/conftest.py.
+.mutation-in-progress

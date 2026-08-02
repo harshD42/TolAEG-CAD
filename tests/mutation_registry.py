@@ -18,7 +18,9 @@ mutation, and asserts the file is restored byte-identically afterwards.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import os
 import pathlib
 import subprocess
 import sys
@@ -27,6 +29,51 @@ import time
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 _VALID_EXPECTATIONS = ("fail", "pass")
+
+# MUTUAL EXCLUSION WITH READERS OF src/.
+#
+# scripts/gate_a.py shells out to a fresh interpreter that reads the checker core
+# FROM DISK. While `reliability-perturbation-tripled` is applied,
+# src/tolcad/reliability.py on disk is mutated, so an overlapping Gate A run
+# reports a real measurement of the wrong instrument -- a silent false green.
+#
+# Per docs/superpowers/specs/2026-08-01-observation-assignment.md, none of
+# O-A..O-D reveals it: the suite passes (O-A), the tree is clean AFTER the run
+# and the corruption exists only DURING it (O-B, structurally blind), the pins
+# compare a genuine number against a constant (O-C), and O-D discovers but does
+# not guard. R2 therefore requires a control, and R5 rules out a CLAUDE.md
+# warning as one -- the warning was already there and an implementer still
+# collided with the layer during Task 7.
+#
+# Gitignored: it is a runtime artifact, and a tracked one would make every
+# mutation run dirty the tree and trip the O-B finalizer in tests/conftest.py.
+MUTATION_LOCK = REPO_ROOT / ".mutation-in-progress"
+
+
+@contextlib.contextmanager
+def mutation_lock():
+    """Hold while a target file is mutated on disk. Readers of src/ refuse to start.
+
+    The contents are diagnostic, not functional: a lock left behind by a killed
+    run has to tell whoever finds it which process took it and when, or the only
+    honest advice a reader can give is "delete this and hope".
+
+    Crash-safety is deliberately NOT claimed. A SIGKILL between the write and the
+    unlink leaves the file behind, exactly as it leaves a mutated src/ file
+    behind; that is B10, and it is not a silent false green (a killed run
+    produces no verdict). The refusal message therefore treats a stale lock as an
+    expected state with a stated recovery, rather than pretending it cannot occur.
+    """
+    MUTATION_LOCK.write_text(
+        "declared mutation in progress\n"
+        f"pid={os.getpid()}\n"
+        f"started={time.strftime('%Y-%m-%dT%H:%M:%S')}\n",
+        encoding="utf-8",
+    )
+    try:
+        yield
+    finally:
+        MUTATION_LOCK.unlink(missing_ok=True)
 
 # Bounded retry around the mutate/restore writes. See _write_bytes_resiliently.
 _WRITE_ATTEMPTS = 5
@@ -144,28 +191,35 @@ def run_declared_mutation(m: DeclaredMutation) -> None:
             f"nothing -- fix the test first."
         )
 
-    try:
-        _write_bytes_resiliently(path, mutated)
-        passed_under_mutation = _target_test_passes(m.test)
-    finally:
+    # The lock opens BEFORE the mutating write and closes only after the restore
+    # has been verified byte-identical, so there is no window in which a file on
+    # disk is mutated and the lock is not held. Note the ordering the nesting
+    # buys: the inner `finally` restores the file, and only then does the context
+    # manager's own `finally` clear the lock. Releasing first -- e.g. by wrapping
+    # just the mutating write -- would reopen the exact race this closes.
+    with mutation_lock():
         try:
-            _write_bytes_resiliently(path, original)
-        except OSError as exc:
-            # Deliberately raised from `finally`, masking any in-flight error:
-            # a mutated file left on disk is strictly the worse outcome and
-            # must be the message the operator sees first.
-            raise AssertionError(
-                f"{m.name}: could NOT restore {m.target} after "
-                f"{_WRITE_ATTEMPTS} attempts. THE FILE IS LEFT MUTATED. Run "
-                f"`git checkout -- {m.target}` before doing anything else, "
-                f"then re-run. Underlying error: {exc!r}"
-            ) from exc
+            _write_bytes_resiliently(path, mutated)
+            passed_under_mutation = _target_test_passes(m.test)
+        finally:
+            try:
+                _write_bytes_resiliently(path, original)
+            except OSError as exc:
+                # Deliberately raised from `finally`, masking any in-flight error:
+                # a mutated file left on disk is strictly the worse outcome and
+                # must be the message the operator sees first.
+                raise AssertionError(
+                    f"{m.name}: could NOT restore {m.target} after "
+                    f"{_WRITE_ATTEMPTS} attempts. THE FILE IS LEFT MUTATED. Run "
+                    f"`git checkout -- {m.target}` before doing anything else, "
+                    f"then re-run. Underlying error: {exc!r}"
+                ) from exc
 
-    if path.read_bytes() != original:
-        raise AssertionError(
-            f"{m.name}: {m.target} was NOT restored byte-identically. The "
-            f"working tree may be corrupt -- check it before doing anything else."
-        )
+        if path.read_bytes() != original:
+            raise AssertionError(
+                f"{m.name}: {m.target} was NOT restored byte-identically. The "
+                f"working tree may be corrupt -- check it before doing anything else."
+            )
 
     if m.expect == "fail" and passed_under_mutation:
         raise AssertionError(

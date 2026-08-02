@@ -23,6 +23,74 @@ sys.path.insert(0, str(REPO))
 from tolcad.reliability import StabilityResult, verdict_stability  # noqa: E402
 from validation import nist_pmi, tolanalyst  # noqa: E402
 
+# --- mutual exclusion with the declared-mutation layer -----------------------
+#
+# This script shells out to fresh interpreters that read tests/test_reliability.py
+# and the checker core FROM DISK. tests/mutation_registry.run_declared_mutation
+# mutates src/tolcad/reliability.py (and five other tracked files) in place for
+# the duration of one subprocess run, so a Gate A run overlapping a pytest run
+# can measure a MUTATED checker and print PASS. That is a real measurement of
+# the wrong instrument -- a silent false green, and the one row in
+# docs/superpowers/specs/2026-08-01-observation-assignment.md whose "revealed by"
+# cell reads none. R2 requires a control; R5 forbids counting the CLAUDE.md
+# warning as one.
+#
+# WHY THE CHECK LIVES IN main() AND NOT AT MODULE LEVEL. tests/test_gate_a.py
+# imports this module at collection time, and TWO declared-mutation entries
+# (reliability-perturbation-tripled, y14-5-worked-example-boundary-shifted)
+# target tests in that file -- so those subprocesses import this module WHILE THE
+# LOCK IS HELD, by construction. A module-level `raise SystemExit(2)` would make
+# them exit non-zero at import, which run_declared_mutation reads as
+# "the test failed under mutation", i.e. the experiment would report SUCCESS for
+# an entirely spurious reason. The guard would have manufactured two guards that
+# cannot fail inside the layer built to catch guards that cannot fail. Deferring
+# to main() separates importing this module (always safe) from executing a
+# measurement with it (the thing that must not overlap), and main() reaches the
+# check before any measurement work.
+_MUTATION_LOCK = REPO / ".mutation-in-progress"
+
+# Distinct from this script's meaningful codes: 0 = Gate A cleared, 1 = not
+# cleared. A refusal is neither, and a caller must be able to tell them apart.
+_LOCK_HELD_EXIT = 2
+
+
+def _refuse_if_a_mutation_is_in_flight(lock: pathlib.Path = _MUTATION_LOCK) -> None:
+    """Exit 2 if a declared mutation is mutating the tree right now.
+
+    The stale-lock branch matters as much as the live one: a run killed
+    mid-mutation leaves the file behind and every later invocation refuses, so
+    the message is a recovery procedure rather than "wait for the suite to
+    finish", which is precisely wrong advice when nothing is running.
+    """
+    if not lock.exists():
+        return
+    try:
+        held_by = "; ".join(
+            ln.strip() for ln in lock.read_text(encoding="utf-8").splitlines() if ln.strip()
+        )
+    except OSError as exc:  # raced with the unlink, or unreadable
+        held_by = f"(lock contents unreadable: {exc!r})"
+    print(
+        f"REFUSING TO RUN: a declared mutation is in progress.\n"
+        f"  lock:    {lock}\n"
+        f"  held by: {held_by}\n"
+        f"  This reader loads the checker core from disk in fresh interpreters "
+        f"and would measure a MUTATED checker, reporting a genuine number for "
+        f"the wrong instrument.\n"
+        f"  If pytest is running in another window, wait for it to finish -- the "
+        f"lock clears itself.\n"
+        f"  IF NOTHING IS RUNNING, THE LOCK IS STALE (a run was killed "
+        f"mid-mutation). Recover in this order:\n"
+        f"    1. git status --short src/ tests/fixtures/\n"
+        f"    2. anything modified there that you did not edit is a leftover "
+        f"mutant: git checkout -- src/ tests/fixtures/\n"
+        f"    3. delete {lock}\n"
+        f"    4. re-run.",
+        file=sys.stderr,
+    )
+    raise SystemExit(_LOCK_HELD_EXIT)
+
+
 NIST_EXPECTED = REPO / "data" / "nist_pmi_expected.csv"
 TOLANALYST_EXPORT = REPO / "data" / "tolanalyst_verdicts.csv"
 AGREEMENT_THRESHOLD = 0.95  # pre-registered, DO NOT LOOSEN
@@ -351,6 +419,9 @@ def _format_margin_band(stability: StabilityResult | ReliabilityAggregate) -> st
 
 
 def main() -> int:
+    # FIRST, before any measurement: refuse if the tree is being mutated.
+    _refuse_if_a_mutation_is_in_flight()
+
     # (name, ok, kind, note). `kind` is formatted into the status column, so a
     # reader cannot see PASS without also seeing what kind of evidence it rests
     # on. See the MEASURED/ATTESTED note at the top of this file.

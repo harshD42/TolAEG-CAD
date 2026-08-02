@@ -26,6 +26,76 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 CORE_MODULES = ("types", "y14_5", "iso286", "montecarlo", "checker", "reliability")
 
+# --- mutual exclusion with the declared-mutation layer -----------------------
+#
+# Layer 2 measures coverage and mutation score over src/tolcad/ by shelling out
+# to fresh interpreters that read those files FROM DISK. Layer 3
+# (tests/mutation_registry.run_declared_mutation) mutates six of them in place
+# for the duration of a subprocess run. Overlapping the two measures the wrong
+# instrument and reports a real-looking number for it. Worse in this direction
+# than for Gate A: cosmic-ray is ALSO mutating those files, so two writers race
+# for the same bytes and the restore that loses is the one that leaves the tree
+# corrupt. That is the accident that happened during Task 7 -- an implementer
+# started this script alongside pytest, killed it, and found src/tolcad/y14_5.py
+# left mutated.
+#
+# The check is deliberately duplicated in scripts/gate_a.py rather than shared:
+# scripts/ is not an installed package, this script is run as `python
+# scripts/check_suite_integrity.py` (sys.path[0] = scripts/) while gate_a is
+# ALSO imported as `scripts.gate_a` by tests/test_gate_a.py (sys.path[0] = repo
+# root), and no single import form works for both. Twelve duplicated lines are
+# cheaper than an import that resolves in one entry point and not the other, and
+# tests/test_declared_mutations.py exercises BOTH copies, so they cannot drift
+# apart silently.
+#
+# It lives in main(), not at module level, because tests/test_suite_integrity_script.py
+# imports this module to read its pins; a module-level SystemExit would turn a
+# held lock into a collection error in unrelated tests. See the longer note in
+# scripts/gate_a.py for the case that actually forces the choice.
+_MUTATION_LOCK = REPO_ROOT / ".mutation-in-progress"
+
+# Distinct from this script's meaningful codes: 0 = OK, 1 = a pin failed. A
+# refusal must not be mistakable for a measured failure -- today this script
+# exits 1 on the mutation pin, so "non-zero" alone says nothing.
+_LOCK_HELD_EXIT = 2
+
+
+def _refuse_if_a_mutation_is_in_flight(lock: Path = _MUTATION_LOCK) -> None:
+    """Exit 2 if a declared mutation is mutating the tree right now.
+
+    The stale-lock branch matters as much as the live one: a run killed
+    mid-mutation leaves the file behind and every later invocation refuses, so
+    the message is a recovery procedure rather than "wait for the suite to
+    finish", which is precisely wrong advice when nothing is running.
+    """
+    if not lock.exists():
+        return
+    try:
+        held_by = "; ".join(
+            ln.strip() for ln in lock.read_text(encoding="utf-8").splitlines() if ln.strip()
+        )
+    except OSError as exc:  # raced with the unlink, or unreadable
+        held_by = f"(lock contents unreadable: {exc!r})"
+    print(
+        f"REFUSING TO RUN: a declared mutation is in progress.\n"
+        f"  lock:    {lock}\n"
+        f"  held by: {held_by}\n"
+        f"  This reader loads the checker core from disk in fresh interpreters "
+        f"and mutates it itself, so running now would both measure a MUTATED "
+        f"checker and race another writer for the restore.\n"
+        f"  If pytest is running in another window, wait for it to finish -- the "
+        f"lock clears itself.\n"
+        f"  IF NOTHING IS RUNNING, THE LOCK IS STALE (a run was killed "
+        f"mid-mutation). Recover in this order:\n"
+        f"    1. git status --short src/ tests/fixtures/\n"
+        f"    2. anything modified there that you did not edit is a leftover "
+        f"mutant: git checkout -- src/ tests/fixtures/\n"
+        f"    3. delete {lock}\n"
+        f"    4. re-run.",
+        file=sys.stderr,
+    )
+    raise SystemExit(_LOCK_HELD_EXIT)
+
 CORE_TEST_SUBSET = [f"tests/test_{name}.py" for name in CORE_MODULES]
 
 # O-C: two-sided pins. A one-sided floor never flags an improvement, so the pin
@@ -219,6 +289,11 @@ def _print_report(rows: list[tuple[str, str, str, bool]]) -> None:
 
 
 def main(argv: list[str]) -> int:
+    # FIRST, before the argv branch and before any measurement: refuse if the
+    # tree is being mutated. Ahead of the branch deliberately, so --self-test-failure
+    # exercises the same guard the real invocation reaches.
+    _refuse_if_a_mutation_is_in_flight()
+
     rows: list[tuple[str, str, str, bool]] = []
 
     if "--self-test-failure" in argv:

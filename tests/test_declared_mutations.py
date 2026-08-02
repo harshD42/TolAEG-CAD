@@ -6,14 +6,19 @@ a practice that was previously manual and evaporated with the shell session.
 """
 
 import pathlib
+import subprocess
+import sys
 
 import pytest
 
 from tests import mutation_registry
 from tests.mutation_registry import (
+    MUTATION_LOCK,
     REGISTRY,
+    REPO_ROOT,
     DeclaredMutation,
     _write_bytes_resiliently,
+    mutation_lock,
     run_declared_mutation,
 )
 
@@ -204,3 +209,163 @@ def test_text_targets_have_a_known_safe_suffix():
             f"{m.name} targets {m.target} as TEXT, but {suffix} is not in the "
             f"known-safe set {sorted(safe)}. Declare it binary=True."
         )
+
+
+# --- mutual exclusion between this layer and readers of src/ ----------------
+#
+# The two scripts guarded here. check_suite_integrity.py is invoked with
+# --self-test-failure DELIBERATELY: the guard is the first statement in main(),
+# before the argv branch, so the same code path is exercised -- but if the guard
+# were absent or misplaced, the plain invocation would spend ~25 minutes running
+# cosmic-ray before this test could fail. The self-test path returns in under a
+# second, so a broken guard shows up as a wrong exit code, not as a hung suite.
+_READERS = (
+    ("scripts/gate_a.py", ("scripts/gate_a.py",)),
+    (
+        "scripts/check_suite_integrity.py",
+        ("scripts/check_suite_integrity.py", "--self-test-failure"),
+    ),
+)
+
+# Distinct from both scripts' meaningful codes (0 = cleared/OK, 1 = a criterion
+# or a pin failed). A refusal must not be mistakable for a measured failure.
+_LOCK_HELD_EXIT = 2
+
+
+def _run_reader(argv: tuple[str, ...]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, *argv],
+        cwd=REPO_ROOT, capture_output=True, text=True, timeout=600,
+    )
+
+
+def test_a_reader_refuses_to_run_while_a_mutation_is_in_flight():
+    """O-B cannot see this: the tree is clean AFTER the run, and the corruption
+    exists only DURING it.
+
+    gate_a.py shells out to a fresh interpreter that reads the checker core from
+    disk, so a run overlapping `reliability-perturbation-tripled` reports a Gate A
+    number measured against a mutated checker -- a silent false green. The
+    observation-assignment spec's table gives this row "revealed by: none", which
+    is what forces a control (R2), and rules out a CLAUDE.md warning as one (R5).
+
+    Written so it cannot pass vacuously: a missing guard leaves gate_a.py exiting
+    1 (it exits 1 on the clean tree too, because SKIP rows remain), so the exit
+    code is pinned EXACTLY to the refusal code rather than to `!= 0`.
+    """
+    assert not MUTATION_LOCK.exists(), (
+        f"{MUTATION_LOCK} already exists before the lock is taken. Either a run "
+        f"was killed mid-mutation or something else creates this file; this test "
+        f"cannot distinguish its own lock from a pre-existing one."
+    )
+
+    results = {}
+    with mutation_lock():
+        assert MUTATION_LOCK.exists(), (
+            "mutation_lock() did not create the lock file, so the refusals below "
+            "would prove nothing about mutual exclusion"
+        )
+        for name, argv in _READERS:
+            results[name] = _run_reader(argv)
+
+    assert not MUTATION_LOCK.exists(), "the lock must clear even on the happy path"
+
+    for name, proc in results.items():
+        combined = proc.stdout + proc.stderr
+        assert proc.returncode == _LOCK_HELD_EXIT, (
+            f"{name} exited {proc.returncode} with the lock held; expected "
+            f"{_LOCK_HELD_EXIT}. A reader that merely fails for its usual reason "
+            f"is indistinguishable from one that refused.\n{combined}"
+        )
+        assert "mutation" in combined.lower(), (
+            f"{name} refused without saying why:\n{combined}"
+        )
+        assert "REFUSING TO RUN" in combined, (
+            f"{name} did not print the refusal banner:\n{combined}"
+        )
+        # The refusal must land before any measurement work, not after it.
+        assert "Gate A -" not in proc.stdout, f"{name} measured anyway:\n{proc.stdout}"
+        assert "Suite integrity -" not in proc.stdout, (
+            f"{name} measured anyway:\n{proc.stdout}"
+        )
+        # A stale lock (a run killed mid-mutation) blocks every later run, so the
+        # message has to be a recovery procedure and not just "wait".
+        lowered = combined.lower()
+        assert "stale" in lowered, (
+            f"{name}'s refusal does not mention the stale-lock case. 'Wait for "
+            f"the suite to finish' is wrong advice when nothing is "
+            f"running:\n{combined}"
+        )
+        assert "git checkout" in lowered and "git status" in lowered, (
+            f"{name}'s refusal does not tell a human how to recover from a stale "
+            f"lock (check the tree, restore any leftover mutant, delete the "
+            f"lock):\n{combined}"
+        )
+
+
+def test_the_lock_clears_when_the_body_raises():
+    """A lock leaked by an exception blocks every later Gate A run.
+
+    `seen` is not decoration: without it this test passes against a
+    `mutation_lock` that never creates the file at all, which is the project's
+    dominant failure mode (a test that cannot fail) reproduced inside the control
+    built to close one.
+    """
+    seen = {}
+    with pytest.raises(RuntimeError, match="boom"):
+        with mutation_lock():
+            seen["held"] = MUTATION_LOCK.exists()
+            raise RuntimeError("boom")
+
+    assert seen["held"], (
+        "the lock was never taken, so its absence afterwards proves nothing"
+    )
+    assert not MUTATION_LOCK.exists(), "a stale lock would block every later run"
+
+
+def test_the_runner_holds_the_lock_across_mutate_run_and_restore(monkeypatch):
+    """A lock taken and dropped before the restore leaves the race wide open.
+
+    Observed from inside the runner rather than read off its source. An earlier
+    draft of this test compared the character offsets of `with mutation_lock():`
+    and the mutating write in the module text, and it PASSED against a runner
+    rewritten as `with mutation_lock(): pass` followed by an unprotected
+    mutate/run/restore -- a test that cannot fail, inside the control added to
+    close one. Offsets cannot see block structure; sampling the lock at each
+    write can.
+
+    Nothing is written and no test is spawned: `_write_bytes_resiliently` and
+    `_target_test_passes` are both replaced by recorders, so the probe reads the
+    real runner's control flow without touching src/ at all.
+    """
+    probe = next(m for m in REGISTRY if m.name == "zeroed-wall-margin")
+    target = REPO_ROOT / probe.target
+    before = target.read_bytes()
+
+    lock_at_write: list[bool] = []
+    lock_at_test: list[bool] = []
+
+    def recording_write(path, data):
+        lock_at_write.append(MUTATION_LOCK.exists())  # deliberately does not write
+
+    def recording_test(selector):
+        lock_at_test.append(MUTATION_LOCK.exists())
+        # True for the pre-mutation baseline, False afterwards, so this
+        # expect="fail" entry is satisfied and the runner returns normally.
+        return len(lock_at_test) == 1
+
+    monkeypatch.setattr(mutation_registry, "_write_bytes_resiliently", recording_write)
+    monkeypatch.setattr(mutation_registry, "_target_test_passes", recording_test)
+
+    run_declared_mutation(probe)
+
+    assert lock_at_write == [True, True], (
+        f"the lock was not held at both writes (mutate, restore): {lock_at_write}. "
+        f"A window in which a src/ file is mutated and the lock is not held is "
+        f"exactly the race this control exists to close."
+    )
+    assert lock_at_test[1:] == [True], (
+        f"the lock was not held while the mutated tree was under test: {lock_at_test}"
+    )
+    assert not MUTATION_LOCK.exists(), "the runner must not leave the lock behind"
+    assert target.read_bytes() == before, "the probe must not touch the tree"
