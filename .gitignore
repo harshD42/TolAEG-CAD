@@ -8,11 +8,15 @@ dist/
 .venv/
 results/
 
-# Literature PDFs: ~617MB, fully reproducible via scripts/fetch_literature.sh.
-# The index and fetch log ARE tracked, so the corpus stays auditable.
+# Literature PDFs: ~1.17 GB (111 files, measured 2026-08-01 -- the earlier
+# "~617MB" here was from a 69-paper corpus and went stale as papers were added).
+# Fully reproducible via scripts/fetch_literature.sh. The index and fetch log ARE
+# tracked, so the corpus stays auditable -- note the log itself still ends
+# "downloaded=69 ... total=69" and is a record of that run, not of the corpus.
 papers/literature/*.pdf
 
-# NIST PMI conformance suite: ~14MB, reproducible via scripts/fetch_nist_pmi.py
+# NIST PMI conformance suite: ~14 MB archive, 68 MB once extracted (33 .stp
+# files). Reproducible via scripts/fetch_nist_pmi.py.
 data/nist_pmi/
 
 # Suite-integrity artifacts: regenerable, not tracked.

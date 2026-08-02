@@ -1,0 +1,6 @@
+# Review diffs are regenerable: every commit they span is in git history, so
+# `git diff <a>..<b>` reconstructs any of them exactly. ~720 KB of redundancy.
+*.diff
+
+# Everything else here IS tracked as of 2026-08-01, reversing the earlier
+# blanket `*`. See README.md in this directory for why the decision changed.

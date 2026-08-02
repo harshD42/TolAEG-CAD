@@ -174,8 +174,18 @@ them is how the contradiction started.
 ## 2. Quantities checked and found NOT contested
 
 Recorded so a later reader does not re-open them: the Gate A row count (7 PASS — 5 measured, 2
-attested — 0 FAIL, 3 SKIP, exit 1), the corpus digest, the numpy pin (2.4.1), and the registry
-size (14 entries) each have exactly one live value across every ledger.
+attested — 0 FAIL, 3 SKIP, exit 1), the corpus digest, and the numpy pin (2.4.1) each have exactly
+one live value across every ledger.
+
+**Amendment 2026-08-01, registry size.** This section originally also listed the declared-mutation
+registry at **14 entries** and called it uncontested. That was already stale when written: Task 6
+added `y14-5-worked-example-boundary-shifted`, and the close-out ledger's own T9 entry says
+"fifteen critical guards". **CANONICAL: 15.** Provenance: `tests/mutation_registry.py::REGISTRY`,
+counted directly (`grep -c "DeclaredMutation(" tests/mutation_registry.py` → 15) at commit
+`30eb333`. The error is recorded rather than silently overwritten because it is instructive — a
+stale figure appeared inside the one document whose entire purpose is to hold the non-stale ones,
+within hours of it being written, and no guard caught it. The registry size is not executably
+pinned; that is why. Whether it should be is a question for P1.5.
 
 ## 3. Tracking status of `.superpowers/`, and what Gate D actually needs
 
@@ -196,3 +206,24 @@ be traced from a clone to a logged run. It does not need the raw hour-by-hour le
 clone; it needs the adjudicated value, its provenance, and the executable pin. Those are §1 of
 this file, the design specs, and the pins in `tests/` and `scripts/` — all tracked. The
 recommendation is in the task report; this section records the measurement it rests on.
+
+### Amendment 2026-08-01, superseding the table above
+
+**The SDD ledgers are now TRACKED.** The blanket `*` was replaced with `*.diff`, and
+`.superpowers/sdd/README.md` was added to label the hazard. 101 files, 19,279 lines.
+
+The reasoning above is not withdrawn — it correctly answers the question it was asked, which was
+*what does Gate D's traceability need*. It was overturned by a different requirement that arrived
+afterwards: **the work has to resume from a clone on another machine**, with the learnings intact.
+Untracked ledgers do not clone.
+
+The decisive argument was self-referential and was missed above. **§1 of this very file cites the
+ledgers by `path:line` as its provenance** — `.superpowers/sdd/2026-08-01-procedural-generator/progress.md:50`,
+`.superpowers/sdd/2026-08-01-suite-integrity/progress.md:261,301`, and others. Under the previous
+ignore rule every one of those citations dangles in a clone, so the document that exists to make
+claims traceable was itself untraceable there. That is the *Unencoded* shape one level up, and it
+is worth recording as a near-miss: the argument for the earlier decision was locally valid and
+globally wrong, and nothing in the observation set would have caught it.
+
+Review `.diff` artifacts remain ignored — every commit they span is in history, so
+`git diff <a>..<b>` reconstructs any of them exactly.

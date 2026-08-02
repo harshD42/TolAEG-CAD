@@ -2,6 +2,14 @@
 
 **Status:** approved 2026-08-01. Supersedes nothing; additive to the existing gate structure.
 
+> **Amendments: see §10.** Four statements below are superseded and are left in place
+> rather than rewritten. In short: the instance count is **twelve**, not eleven (§1 prose,
+> §4's Layer 3 note, §8's first bullet and its distribution); Gate A was deliberately
+> changed and now reports **7 PASS (5 measured, 2 attested) / 0 FAIL / 3 SKIP**, not
+> 6 PASS / 3 SKIP (§8); and §3's *"280 passed"* and *"no CI and no git remote"* no longer
+> hold, which also discharges the "dormant until a remote exists" caveats in §4.
+> §1's **table** is correct as written — it is the prose around it that miscounts.
+
 ## 1. Problem
 
 This project's dominant failure mode is **the test or metric that cannot fail**. Eleven instances are documented across Phases 0–3.5b. Every one passed, looked correct, and was caught only by someone asking, by hand, "what change would make this fail?"
@@ -146,3 +154,83 @@ Each layer is verified the way the project now verifies everything: by demonstra
 ## 9. Open question carried into implementation
 
 The registry protects named guards. Nothing forces a *new* guard to be registered — a future test protecting a new published number could be added without an entry, and no layer would notice. Options are a naming convention checked by a lint, or accepting that the registry covers the frozen set and is extended deliberately. Deferred to the plan; the pre-registration freeze bounds how much new surface can appear.
+
+---
+
+## 10. Amendments (post-approval)
+
+Same convention as the design spec's §7 correction log, and the same letter sequence, so
+that no two amendments in this project share an identifier. The superseded text is quoted,
+never overwritten: these statements were true, or believed true, when written, and the
+record of what was believed is the point.
+
+- *2026-08-01i (C1 amendment, pre-data):* **The instance count is twelve, not eleven.**
+  Superseded text, in four places:
+  §1 prose — *"Eleven instances are documented across Phases 0–3.5b"*;
+  §4's Layer 3 note — *"Four of the eleven instances lived there"*;
+  §8's first bullet — *"All eleven historical instances are caught by at least one layer"*;
+  and that bullet's distribution sentence, which allocates 2 + 3 + 7 across the three layers.
+  **Reason: §1's own table enumerates twelve** — Insensitive 4, Tautological 2, Unreachable 2,
+  Drifted 2, Structurally impossible 1, Unencoded 1 — and the table is the enumeration of
+  record. §8's distribution names **eleven distinct** instances and omits exactly one: the
+  **Unencoded** row, the 39-cell IT table check run once in a shell and never committed. That
+  omission is not incidental. It is the only one of the twelve that **no layer can catch**,
+  because no layer can observe a verification that left no artifact — so a coverage map built
+  by walking the layers was always going to drop precisely that row, and a success criterion
+  asserting full coverage was itself an instance of the defect this document exists to
+  prevent. Row-by-row confirmation:
+  `docs/superpowers/specs/2026-08-01-observation-assignment.md` §4. Canonical count and the
+  naming rule that follows from it: `docs/superpowers/specs/2026-08-01-ledger-reconciliation.md`
+  §1, *instance count*.
+  **Two consequences the corrected count carries, neither of them a threshold change:**
+  (a) **Refer to instances by name, not by number.** Because the base was wrong by one, every
+  ordinal minted afterwards is unreliable; only instances 2, 3, 4, 5, 6 and 10 are attested in
+  code or spec text, and the remaining positions are not reconstructible from the surviving
+  ledgers. No new ordinal may be minted.
+  (b) **Two instances are FIXED-NO-LAYER.** The module-level `pytestmark` skip lives in
+  `tests/` and the fetcher's `exit 1` branch lives in `scripts/`, while Layer 1's coverage is
+  scoped to the six core modules under `src/tolcad`. §8's distribution credits Layer 1 and
+  Layer 2 with catching them; it cannot. They are fixed, and they are disclosed here rather
+  than claimed as covered.
+  **The numerator "four" in §4's Layer 3 note is not re-adjudicated.** Only the denominator is
+  corrected. The Unencoded instance left no artifact in any file, so on its face it does not
+  raise the numerator — but which four is not reconstructible, for the reason in (a), and
+  inventing the enumeration would be the same defect in a new coat.
+
+- *2026-08-01j (pre-data):* **§8's *"Gate A remains untouched and still reports 6 PASS /
+  3 SKIP"* is superseded on both halves.** *Untouched* — Gate A was deliberately changed, by
+  design-spec amendment `2026-08-01g`: its report now prints each row's evidence kind as
+  `VERDICT(measured|attested)`, and §7's criterion 1 (agreement with published Y14.5 worked
+  examples) was restored as its own measured row after it was found to have been silently
+  renamed in the harness to "Y14.5 self-consistency" and therefore reported by nothing.
+  *6 PASS / 3 SKIP* — Gate A now reports **7 PASS (5 measured, 2 attested) / 0 FAIL /
+  3 SKIP**, exit 1. **This is not a weakening and not a threshold change:** a criterion was
+  *added*, none removed or loosened, and no threshold, seed set, exclusion band or table
+  constant was touched. The success criterion as originally written is nonetheless withdrawn
+  rather than restated, because "Gate A remains untouched" was a **constraint on this
+  branch**, and a later, better-informed decision overrode it. Recording it as satisfied
+  would be false; deleting it would hide that the constraint was overridden on purpose.
+  Reason the constraint was right to override: two of the six PASSes were human attestations
+  recorded by deleting a marker string from source, and an undifferentiated tally read them
+  as measurements — a published Gate A number that could not fail. The criterion-1 verdict
+  now carries a declared-mutation entry (`y14-5-worked-example-boundary-shifted`) that was
+  watched failing.
+
+- *2026-08-01k:* **§3's environment facts have moved.** §3 is headed *"Trust these; do not
+  re-litigate"*, which was correct for its purpose and is why it is annotated rather than
+  edited. Two of its bullets no longer hold, measured at `30eb333`:
+  *"Full suite at time of writing: **280 passed**"* → the full suite is now **428 passed**;
+  *"There is no CI and no git remote. `.github/workflows` does not exist; `git remote -v` is
+  empty"* → `origin` is `https://github.com/harshD42/TolAEG-CAD`, `.github/workflows/ci.yml`
+  exists, and CI is green on `ubuntu-latest` and `windows-latest`. That second change
+  **discharges the "dormant until a remote exists" caveat** in §4's architecture diagram and
+  in §4's CI subsection: the harness is live, not dormant. Gate A's third SKIP ("fresh clone
+  pipeline") is the criterion the workflow was built to close; whether it is now closed is a
+  Gate A question and is **not** settled here.
+  The remaining §3 bullets — `mutmut` 3.7.0 unusable on Windows, `cosmic-ray` usable, the
+  0.14 s core subset, 128 core tests, 827 lines across the six core modules — were **not
+  re-measured** by this amendment and are left standing as recorded.
+
+**Canonical values for every quantity this project has recorded more than one figure for:**
+`docs/superpowers/specs/2026-08-01-ledger-reconciliation.md`. Where this document and that
+one appear to disagree, that one is live.

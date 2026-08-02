@@ -27,8 +27,16 @@ The full ~14 MB suite stays out of git and is reproducible via the fetcher. This
 single file is committed because it is the ONLY positive control the semantic-PMI
 read path has on a fresh clone. Without it, every oracle assertion a fresh clone
 runs is either a zero-count or a FileNotFoundError, and a `read_pmi_counts`
-stubbed to return zeros would pass the entire suite. Design spec line 252 makes
-"fresh clone, no licence, runs end-to-end" an explicit success criterion.
+stubbed to return zeros would pass the entire suite. The design spec's **§7
+Gate A table** makes "Fresh clone, no SW license, full pipeline / Runs
+end-to-end" an explicit success criterion.
+
+> *Corrected 2026-08-01 (staleness audit):* this cited "Design spec line 252",
+> which was accurate when written but is not now — the three amendments
+> `2026-08-01e/f/g` added ~50 lines to §7, and line 252 today falls inside
+> amendment `2026-08-01g`. Replaced with a section reference, because a line
+> number into an append-only document is stale by construction. The criterion
+> itself is unchanged and remains a Gate A SKIP.
 
 It is the smallest AP242 file in the suite carrying non-trivial PMI: 21
 dimensions, 6 geometric tolerances, 11 datums.

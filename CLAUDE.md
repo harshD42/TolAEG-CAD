@@ -16,25 +16,47 @@ Design spec: `docs/superpowers/specs/2026-07-31-tolerance-aware-cad-eval-design.
   import it. Enforced by `tests/test_architecture.py`.
 - **No SolidWorks required for any headline result.** TolAnalyst is a black-box oracle.
 - **`pytest` mutates and restores tracked files.** The declared-mutation layer
-  transiently writes to `src/tolcad/{iso286,reliability}.py`,
-  `src/tolcad/gen/{sampler,layout,features}.py` and one tracked fixture, then
-  restores them. **Never run `pytest` concurrently with `scripts/gate_a.py`,
+  (15 registry entries) transiently writes to
+  `src/tolcad/{iso286,reliability,y14_5}.py`,
+  `src/tolcad/gen/{sampler,layout,features}.py`, the tracked NIST fixture
+  `tests/fixtures/nist_ctc_01_asme1_ap242-e1.stp`, and two tracked test files
+  `tests/gen/{test_layout,test_features}.py` — then restores them.
+  **Never run `pytest` concurrently with `scripts/gate_a.py`,
   `scripts/check_suite_integrity.py`, or anything else that reads
   `src/tolcad/`** — `gate_a.py` shells out to a fresh interpreter that reads the
   checker from disk, so an overlapping run can report a Gate A number measured
-  against a mutated checker. `tests/conftest.py` fails the run if the tree is
-  left dirty; it cannot detect corruption that existed only *during* the run.
-  This is now enforced, not merely advised: `run_declared_mutation` holds
-  `.mutation-in-progress` at the repo root, and both scripts exit 2 with a
-  recovery procedure rather than measuring a mutated checker.
+  against a mutated checker. Note `y14_5.py` in that list: it is the module
+  Gate A's criterion 1 is measured against, so the hazard is not hypothetical.
+  This is enforced, not merely advised: `run_declared_mutation` holds
+  `.mutation-in-progress` at the repo root for the whole mutate-and-restore
+  window, and both scripts exit 2 with a recovery procedure rather than
+  measuring a mutated checker.
+  `tests/conftest.py` fails the run if the tree is left dirty, but **its scope
+  is `src/` and `tests/fixtures/` only** — it does not watch the two
+  `tests/gen/` targets, and it cannot detect corruption that existed only
+  *during* the run. Recover with
+  `git checkout -- src/ tests/fixtures/ tests/gen/`.
 
 ## Commands
 
-    pytest                      # all tests
-    pytest -m "not slow"        # skip Monte Carlo convergence
-    python scripts/gate_a.py    # Gate A report
+    pytest                                  # all tests (428)
+    pytest -m "not slow"                    # skip Monte Carlo convergence
+    python scripts/gate_a.py                # Gate A report (exit 1 until the 3 SKIPs clear)
+    python scripts/check_suite_integrity.py # Layers 1 and 2; the pre-merge gate
+
+Run these **one at a time** — see the mutation/concurrency rule above.
+`gate_a.py` and `check_suite_integrity.py` exit `2`, distinct from their own
+`0`/`1`, when a declared mutation is in flight.
 
 ## Do not edit
 
 Pre-registered Gate A/B/C/D thresholds in the design spec §7 are frozen.
 Changing one after seeing data invalidates the result.
+
+## Where the numbers live
+
+Several quantities have more than one figure recorded across the ledgers. Exactly
+one is live for each, with provenance and the reason the others were superseded:
+`docs/superpowers/specs/2026-08-01-ledger-reconciliation.md`. Quote the **spec**,
+never a ledger — the superseded reliability figure still outnumbers the correct
+one in a grep.

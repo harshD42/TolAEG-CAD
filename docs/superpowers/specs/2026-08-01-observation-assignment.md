@@ -137,6 +137,16 @@ That instance is now closed twice over: the IT table is committed as the 52-cell
 with an executed `it7-row-transposed` registry entry, and this file closes the observation
 table. §8's success criterion still needs its C1 amendment; that is scheduled, not done here.
 
+> **Note, 2026-08-01 (staleness audit).** The C1 amendment is now written: it is
+> `2026-08-01i` in §10 of `docs/superpowers/specs/2026-08-01-suite-integrity-design.md`,
+> together with `2026-08-01j` correcting that section's Gate A row count and `2026-08-01k`
+> correcting its environment facts. The sentence above is left standing because it is a
+> correct record of what was outstanding when this file was written. Two consequences the
+> amendment records and this file did not: instances **5** (module-level `pytestmark` skip,
+> in `tests/`) and **6** (fetcher `exit 1` branch, in `scripts/`) are **FIXED-NO-LAYER** —
+> Layer 1's coverage is scoped to the six core modules under `src/tolcad`, so §8's
+> distribution credits Layers 1 and 2 with catches they structurally cannot make.
+
 **Consequence for numbering.** Because the base count is wrong by one, every ordinal minted
 later is unreliable. Only instances 2, 3, 4, 5, 6 and 10 are attested in code or spec text.
 The canonical resolution is in the ledger-reconciliation companion: **refer to instances by

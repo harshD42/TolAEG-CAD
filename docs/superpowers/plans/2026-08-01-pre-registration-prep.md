@@ -864,3 +864,15 @@ At the end of Task 5:
 ## Open question for the human
 
 The difficulty ladder was tuned against the *current* feature tables. Task 1 changes the sampled fit set and Task 2 changes `hole_b` for fixed fasteners, so although neither should move a Tier 1 verdict, both tasks require re-measuring the per-difficulty failure rate and reporting it. If the table has drifted outside the guard bands (`0.10-0.30` at d1, `0.60-0.80` at d4), that is a finding for the human, not a reason to widen the bands.
+
+---
+
+## Staleness note, appended 2026-08-01 (APPEND-ONLY)
+
+Executed plan; the record stands as written. One superseded figure: the Task verification
+step at line ~836 expects *"Gate A still exits 1 with 6 PASS / 3 SKIP"*. Gate A now reports
+**7 PASS (5 measured, 2 attested) / 0 FAIL / 3 SKIP**, still exit 1, following design-spec
+amendment `2026-08-01g` — a criterion was added, none weakened or removed. The expectation
+was correct when written.
+
+Canonical values: `docs/superpowers/specs/2026-08-01-ledger-reconciliation.md`.

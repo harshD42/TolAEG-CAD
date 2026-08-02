@@ -1018,3 +1018,35 @@ At the end of Task 5:
 ## Open question for the human
 
 The registry protects *named* guards. Nothing forces a **new** guard to be registered, so a future test protecting a new published number could be added with no entry and no layer would notice. The pre-registration freeze bounds how much new surface can appear before the corpus is generated, which is why this is acceptable now rather than in general. If Phase 4 adds new published numbers, the registry needs entries for them, and that obligation currently lives only in this sentence.
+
+---
+
+## Staleness note, appended 2026-08-01 (APPEND-ONLY)
+
+This plan is an **executed** implementation plan. Its task bodies, acceptance criteria and
+"verified environment facts" are a contemporaneous record of what was true and what was
+required at the time, so they are annotated here rather than edited. Four figures in it are
+superseded:
+
+- **`6 PASS / 3 SKIP`** (lines ~26, ~989, ~1010). Gate A now reports **7 PASS (5 measured,
+  2 attested) / 0 FAIL / 3 SKIP**, exit 1. Line 26's stronger form — *"`scripts/gate_a.py`
+  … must remain untouched"* — was a correct constraint **on this branch** and was later
+  deliberately overridden by design-spec amendment `2026-08-01g`, which added a criterion
+  and labelled two attestation rows as attestations. Nothing was weakened or removed.
+- **`eleven` historical instances** (lines ~161, ~523, ~921, ~932, ~939, ~1009). The count
+  is **twelve**; the suite-integrity design spec's §1 table is the enumeration of record and
+  the missing one is the **Unencoded** row. Task 5's `test_the_instance_map_accounts_for_all_eleven`
+  is named after the wrong count. Refer to instances **by name, not by number** — the base
+  was wrong by one, so every later ordinal is unreliable.
+- **`There is no CI and no git remote`** (line 22), and **"dormant until a git remote
+  exists"** (line ~971). Both discharged: `origin` is
+  `https://github.com/harshD42/TolAEG-CAD` and `.github/workflows/ci.yml` is live and green
+  on `ubuntu-latest` and `windows-latest`.
+- **The `280 passed` baseline** (line ~346). The suite is now **428 passed**.
+
+Not superseded, and deliberately left: the **18.2%** `types.py` spike (lines ~17, ~767,
+~808). It is presented there as a *rejected methodology* — the reason the test command must
+run the whole core subset — not as a score for Layer 2, and it is correct in that role.
+
+Canonical values: `docs/superpowers/specs/2026-08-01-ledger-reconciliation.md`.
+Design-spec amendments: §10 of `docs/superpowers/specs/2026-08-01-suite-integrity-design.md`.

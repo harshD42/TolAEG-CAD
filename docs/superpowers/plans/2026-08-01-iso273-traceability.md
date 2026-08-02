@@ -517,3 +517,15 @@ At the end of Task 3:
 ## Open question for the human
 
 The tapped hole keeps a flat +0.2/-0.0 band with no standard behind it, and the fastener keeps a flat -0.1/+0.0 one. Both are provably inert today: `hole_b`'s size never enters B-4, and the fastener's upper deviation is zero so its MMC is the nominal. If a later phase ever makes the tapped feature load-bearing — a press-fit dowel under an MMC modifier, say, which `y14_5.py`'s docstring already flags as the one case where its bonus-cancellation argument fails — or ever gives the fastener a non-zero upper deviation, those numbers stop being free and need real sources (ISO 4759-1 or ISO 965 for the fastener).
+
+---
+
+## Staleness note, appended 2026-08-01 (APPEND-ONLY)
+
+Executed plan; the record stands as written. One superseded figure: the Task verification
+step at line ~484 expects *"Gate A exits 1 with 6 PASS / 3 SKIP"*. Gate A now reports
+**7 PASS (5 measured, 2 attested) / 0 FAIL / 3 SKIP**, still exit 1, following design-spec
+amendment `2026-08-01g` — a criterion was added and two attestation rows were labelled as
+attestations; none was weakened or removed. The expectation was correct when written.
+
+Canonical values: `docs/superpowers/specs/2026-08-01-ledger-reconciliation.md`.

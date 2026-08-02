@@ -1971,3 +1971,17 @@ a missing oracle is never counted as a pass.
    states this as a requirement; it is not satisfied by the plan itself.
 2. **Phase 1 literature study** runs in parallel and is not covered here.
 3. **Phase 3 generator** is the next plan.
+
+---
+
+## Staleness note, appended 2026-08-01 (APPEND-ONLY)
+
+Swept for superseded figures and found clean — no Gate A row count, no instance count, no
+reliability figure and no corpus count appears in this plan.
+
+One item is superseded by ordinary drift rather than by error: **Step 5's embedded
+`CLAUDE.md` block** (lines ~100–127) is the Phase 0 scaffold text, and the live `CLAUDE.md`
+has since grown a mutation/concurrency rule, a fourth command, a pointer to the ledger
+reconciliation, and a more precise ISO 286 unit convention. The block is a record of what
+Phase 0 wrote and is correct as that; it is not a current description of the file. Read
+`CLAUDE.md` itself, never this copy.

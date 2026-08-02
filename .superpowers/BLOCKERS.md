@@ -101,3 +101,50 @@ Canonical values, provenance, and the reason each figure was superseded:
 `docs/superpowers/specs/2026-08-01-ledger-reconciliation.md` (tracked).
 The stopping criterion's worked observation table, previously existing only in an
 agent transcript: `docs/superpowers/specs/2026-08-01-observation-assignment.md`.
+
+## SECOND RECONCILIATION NOTE, appended 2026-08-01 by the staleness audit (APPEND-ONLY)
+
+The note above is correct and stands. It caught four figures; a full sweep of this file
+found **five more** that it did not. Same rule: nothing above is rewritten.
+
+- **line 8, the repo state.** `main @ cedd86a | feat/suite-integrity @ 7979396 (UNMERGED,
+  8 commits ahead)`: superseded. The branch was merged; `main` is at `30eb333`. The remote
+  on line 7 is still correct.
+- **line 9, `376 tests pass. Gate A exit 1, 6 PASS / 3 SKIP`.** Both halves superseded.
+  The suite is **428 passed**. Gate A reports **7 PASS (5 measured, 2 attested) / 0 FAIL /
+  3 SKIP**, exit 1 — a criterion was *added* by design-spec amendment `2026-08-01g`, and two
+  rows that are human attestations rather than measurements are now labelled as such. None
+  was weakened or removed.
+- **line 22, A3's `Needs a CI workflow`.** Superseded: `.github/workflows/ci.yml` exists as
+  of `2184485` and is green on `ubuntu-latest` and `windows-latest`. **A3 itself is NOT
+  closed by this note.** Whether a live CI discharges Gate A's third SKIP ("fresh clone, no
+  SW licence, full pipeline runs end-to-end") is a Gate A verdict, and this audit does not
+  issue Gate A verdicts.
+- **line 49, B7's k-sweep.** `k=2 gives 0.9518 and is NOT caught (0.0018 margin); k=3 gives
+  0.9068` — superseded, and superseded in the *favourable* direction, which is why it needs
+  saying out loud rather than quietly enjoying. Restoring the twelfth reliability mate under
+  amendment `2026-08-01f` **tightened** the instrument: k=2 now measures **0.9392 and FAILS
+  (caught)**, k=3 measures **0.8950**. Provenance: the docstring of
+  `tests/test_gate_a.py::test_the_reliability_row_reads_pass_from_the_real_measurement`
+  (lines ~245–255) and `docs/superpowers/specs/2026-08-01-ledger-reconciliation.md` §1,
+  *reliability mean*, closing note. B7's substance survives the correction: instance 4 is
+  **improved and bounded, still not closed**, and the disclosed 2–3× headroom bound is now
+  *better* than the disclosure claims. The k-sweep must be re-measured before it enters the
+  pre-registration; do not carry either set of figures forward.
+- **line 63, C1.** Two corrections. Its `eleven-historical-instance coverage map` is
+  superseded by the same finding as line 78 — the count is **twelve**, and the map's missing
+  row is the **Unencoded** one. And the amendment C1 owed to the suite-integrity design
+  spec's §8 is now written: `2026-08-01i` in §10 of
+  `docs/superpowers/specs/2026-08-01-suite-integrity-design.md`. The CI half of C1 is done;
+  the *verified* coverage map is not, and it must record that instances **5** and **6** are
+  FIXED-NO-LAYER (they live in `tests/` and `scripts/`, outside Layer 1's six-module scope).
+
+**Observed but deliberately not adjudicated:** line 3 says `17 items`, while the section
+headings count A(5) + B(12) + C(1) = **18**. Whether C1 was intended to sit outside the
+inventory total, or a row was added after the header was written, cannot be determined from
+this file. Recorded, not corrected.
+
+Canonical values for everything above:
+`docs/superpowers/specs/2026-08-01-ledger-reconciliation.md`.
+Full audit that produced this note:
+`docs/superpowers/specs/2026-08-01-staleness-audit.md`.

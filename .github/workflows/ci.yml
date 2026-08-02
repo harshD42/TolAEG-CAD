@@ -2,7 +2,7 @@ name: CI
 
 # Two jobs, deliberately on different paths.
 #
-# `suite` is the per-push gate: full pytest suite (currently 402 tests,
+# `suite` is the per-push gate: full pytest suite (428 tests as of 2026-08-01;
 # ~1 minute) on both ubuntu-latest and windows-latest.
 #
 # `integrity` is Layer 2 (scripts/check_suite_integrity.py): cosmic-ray

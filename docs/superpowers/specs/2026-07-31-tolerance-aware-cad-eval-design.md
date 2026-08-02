@@ -5,6 +5,13 @@
 **Co-author/advisor:** SolidWorks AI Director
 **Status:** Revised after 95-paper literature review; awaiting re-approval
 
+> **Amendments.** Two logs apply to this document. §7 carries the pre-registered
+> threshold correction log (`2026-07-31a` … `2026-08-01g`). §14 carries corrections
+> **outside** §7, which §7's freeze does not cover. **The "95-paper" figure in the
+> Status line above, in §0 and in §12 is superseded — the corpus is 111 papers.
+> See amendment `2026-08-01h` in §14.** The superseded text is left in place
+> deliberately; this project does not silently rewrite approved documents.
+
 ---
 
 ## 0. What changed in v2, and why
@@ -437,3 +444,33 @@ no claim at all.
 - Manufacturing cost modeling
 - Any proprietary or employer-internal data
 - Paper 2's method (§10)
+
+---
+
+## 14. Amendments outside §7 (post-approval, pre-data)
+
+§7's correction log is reserved for the pre-registered Gate A/B/C/D thresholds and their
+estimators, and `CLAUDE.md` freezes those. This section exists so that a correction to
+**non-threshold** material in this document has somewhere to go that is not §7 — appending
+to §7's log would have forced an edit to its "All seven predate any experimental data"
+sentence, which is frozen text. Same convention, same form, different scope: the superseded
+text is shown, never overwritten, and the reason for supersession is stated.
+
+- *2026-08-01h (pre-data):* **The literature corpus is 111 papers, not 95.** Three
+  statements in this document are superseded: the Status line's *"Revised after 95-paper
+  literature review"*, §0's *"A literature review of 95 papers forced three structural
+  changes"*, and §12's Phase 1 row *"Literature study (95 papers fetched)"*. **Reason: the
+  figure was false when written, not overtaken by later work.** The commit that introduced
+  this v2 revision, `3897213`, is titled *"Spec v2: reframe after 111-paper literature
+  review"*, and `papers/literature/INDEX.md` said **111** in that same commit. Verified
+  three independent ways at `30eb333`: 111 arXiv-ID bullets in `INDEX.md`, the eleven
+  section subtotals in that file summing to 111 (4+17+3+5+5+15+4+3+11+10+34), and 111 PDFs
+  on disk under `papers/literature/`. Reproducible via `scripts/fetch_literature.sh` and
+  `scripts/verify_literature.py`. **Nothing in §7 is touched.** Gate D's *"≥ 80 papers
+  reviewed"* criterion is unchanged and is met at either figure, so this correction cannot
+  move a gate verdict in either direction — which is why it is safely made pre-data. The
+  ~30-generative-CAD-systems / ~40-assembly-learning-papers breakdown in §2 describes a
+  surveyed subset, not the corpus, and is not re-derived here.
+
+**Canonical values for every quantity this project has recorded more than one figure for:**
+`docs/superpowers/specs/2026-08-01-ledger-reconciliation.md`.
